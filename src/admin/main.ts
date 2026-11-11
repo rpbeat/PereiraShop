@@ -17,6 +17,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db, SHOP_NAME } from '../lib/firebase';
 import { deleteByUrl, uploadImage } from '../lib/storage';
+import { renderImport } from './import';
 import {
   SIZES_ADULT,
   SIZES_KIDS,
@@ -141,6 +142,7 @@ function renderNav(): void {
     <a href="#/encomendas">Encomendas${pending ? ` <span class="badge">${pending}</span>` : ''}</a>
     <a href="#/fila">Fila fornecedor${queue ? ` <span class="badge">${queue}</span>` : ''}</a>
     <a href="#/artigos">Artigos</a>
+    <a href="#/importar">Importar</a>
     <a href="#/patches">Patches</a>
     <a href="#" id="logout">Sair</a>`;
   nav.querySelector('#logout')!.addEventListener('click', (e) => {
@@ -172,6 +174,9 @@ function route(): void {
       break;
     case 'patches':
       renderPatches(decodeURIComponent(arg));
+      break;
+    case 'importar':
+      renderImport({ app, products: () => products, patches: () => patches, reloadProducts: loadProducts });
       break;
     default:
       location.hash = '#/encomendas';
