@@ -1,0 +1,52 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Administradores: um documento admins/{uid} por cada conta com acesso ao backoffice.
+    // Criar manualmente na consola do Firebase.
+    function isAdmin() {
+      return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    match /admins/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    // Catálogo: só clientes com sessão iniciada.
+    // Para tornar o catálogo público, trocar "signedIn()" por "true" nas duas regras de leitura abaixo.
+    match /products/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /patches/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // Perfil do cliente (nome, telefone, morada)
+    match /users/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+      allow read: if isAdmin();
+    }
+
+    match /orders/{id} {
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.status == 'pendente'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.items is list
+        && request.resource.data.items.size() > 0
+        && request.resource.data.items.size() <= 50
+        && request.resource.data.keys().hasOnly(['uid', 'email', 'customer', 'items', 'notes', 'status', 'createdAt']);
+      allow read: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+  }
+}
