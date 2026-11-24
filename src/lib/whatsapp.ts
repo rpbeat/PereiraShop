@@ -62,11 +62,70 @@ export async function copyImage(url: string): Promise<void> {
   await navigator.clipboard.write([new ClipboardItem({ 'image/png': toPngBlob(url) })]);
 }
 
-export async function copyImageAndText(url: string, text: string): Promise<void> {
-  await navigator.clipboard.write([
-    new ClipboardItem({
-      'image/png': toPngBlob(url),
-      'text/plain': new Blob([text], { type: 'text/plain' }),
-    }),
-  ]);
+/**
+ * Uma só imagem com a foto em cima e o texto da encomenda por baixo (como uma mensagem do WhatsApp).
+ * O WhatsApp Web só aceita uma coisa por colagem (imagem OU texto); assim vai tudo de uma vez.
+ */
+export async function imagemComTexto(url: string, text: string): Promise<Blob> {
+  const res = await fetch(url, { mode: 'cors' });
+  if (!res.ok) throw new Error(`Falha a obter imagem (${res.status})`);
+  const bmp = await createImageBitmap(await res.blob());
+  const W = Math.min(1080, bmp.width);
+  const fotoH = Math.round((bmp.height * W) / bmp.width);
+  const k = W / 1080; // tudo proporcional à largura
+  const linhas = text.split('\n');
+  const fonte = Math.round(54 * k);
+  const entre = Math.round(fonte * 1.38);
+  const pad = Math.round(44 * k);
+  const textoH = pad * 2 + entre * linhas.length - (entre - fonte);
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = fotoH + textoH;
+  const ctx = c.getContext('2d')!;
+  ctx.drawImage(bmp, 0, 0, W, fotoH);
+  bmp.close();
+  ctx.fillStyle = '#e1f8d0';
+  ctx.fillRect(0, fotoH, W, textoH);
+  ctx.fillStyle = '#111b21';
+  ctx.textBaseline = 'top';
+  ctx.font = `700 ${fonte}px "Segoe UI", Arial, Helvetica, sans-serif`;
+  linhas.forEach((l, i) => ctx.fillText(l, pad, fotoH + pad + i * entre, W - pad * 2));
+  return new Promise((resolve, reject) => c.toBlob((b) => (b ? resolve(b) : reject(new Error('Falha a gerar imagem'))), 'image/png'));
+}
+
+/** Copia a imagem com o texto por baixo (uma colagem leva tudo). */
+export async function copyImageWithText(url: string, text: string): Promise<void> {
+  await navigator.clipboard.write([new ClipboardItem({ 'image/png': imagemComTexto(url, text) })]);
+}
+
+/** O browser consegue partilhar ficheiros (telemóvel; Windows com Chrome/Edge)? */
+export function podePartilhar(): boolean {
+  try {
+    return !!navigator.canShare?.({ files: [new File([new Blob()], 'teste.jpg', { type: 'image/jpeg' })] });
+  } catch {
+    return false;
+  }
+}
+
+// ficheiros já preparados: o 2.º toque partilha logo (alguns browsers só deixam partilhar logo após o toque)
+const prontos = new Map<string, File>();
+
+/** Abre a partilha do sistema com a foto e o texto como legenda (no WhatsApp: imagem + legenda). */
+export async function partilhar(url: string, text: string, nome: string): Promise<'ok' | 'repetir'> {
+  let f = prontos.get(url);
+  if (!f) {
+    const r = await fetch(url, { mode: 'cors' });
+    if (!r.ok) throw new Error(`Falha a obter imagem (${r.status})`);
+    const b = await r.blob();
+    f = new File([b], `${nome.replace(/[^\w-]+/g, '_') || 'camisola'}.${b.type.includes('png') ? 'png' : 'jpg'}`, { type: b.type || 'image/jpeg' });
+    prontos.set(url, f);
+  }
+  try {
+    await navigator.share({ files: [f], text });
+    return 'ok';
+  } catch (err) {
+    if ((err as DOMException)?.name === 'NotAllowedError') return 'repetir';
+    if ((err as DOMException)?.name === 'AbortError') return 'ok'; // o utilizador fechou a janela
+    throw err;
+  }
 }

@@ -3,7 +3,7 @@
 Loja de camisolas com área de cliente e backoffice, alojada no Firebase.
 
 - **Loja** (`/`): registo/entrada com email e palavra-passe, catálogo, escolha de tamanho, nome, número e patches, carrinho e registo de encomenda (sem pagamento online), histórico de encomendas.
-- **Backoffice** (`/admin`): encomendas com estados, **fila do fornecedor** com cópia da imagem + texto para o WhatsApp, gestão de artigos e de patches.
+- **Backoffice** (`/admin`): encomendas com estados, **fila do fornecedor** com cópia da imagem com o texto para o WhatsApp, gestão de artigos e de patches.
 
 Stack: Vite + TypeScript, Firebase Auth, Firestore, Storage e Hosting.
 
@@ -64,7 +64,8 @@ npm run deploy   # build + firebase deploy (hosting, regras)
 1. O cliente regista a encomenda → estado **Pendente**.
 2. Recebe o pagamento (MB Way/transferência) → muda para **Paga** no backoffice.
 3. Em **Fila fornecedor** aparecem os artigos pagos ainda não enviados. Para cada um:
-   **Copiar imagem + texto** → colar na conversa do fornecedor no WhatsApp Web → **Marcar como enviado**.
+   **Copiar imagem com texto** → colar na conversa do fornecedor no WhatsApp Web → **Marcar como enviado**.
+   No telemóvel, **Partilhar…** envia a foto com o texto como legenda.
    Quando todos os artigos estão marcados, a encomenda passa a **Encomendada ao fornecedor**.
 4. Depois: **Enviada** → **Entregue**.
 
@@ -78,8 +79,8 @@ PATCH: LIGA PORTUGAL
 QTY: 2
 ```
 
-**Nota sobre a cópia:** "Copiar imagem + texto" coloca as duas coisas na área de transferência ao mesmo tempo. O WhatsApp Web normalmente aceita a imagem e ignora o texto, ou o contrário. Se isso acontecer, use **Só imagem** → colar → no campo de legenda **Só texto** → colar → enviar.
-A cópia de imagens funciona no Chrome/Edge em computador. Precisa do CORS configurado (passo 3).
+**Nota sobre a cópia:** o WhatsApp Web só aceita uma coisa por colagem (imagem ou texto). Por isso "Copiar imagem com texto" gera uma única imagem com a foto e, por baixo, SIZE / NAME / NUMBER / PATCH. Se o fornecedor precisar do texto como texto, use "Só imagem", cole, e depois "Só texto" na legenda.
+A cópia de imagens funciona no Chrome/Edge em computador e precisa do CORS do Storage configurado.
 
 ## Modelo de dados (Firestore)
 

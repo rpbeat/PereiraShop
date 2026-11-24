@@ -38,7 +38,7 @@ import {
   type Product,
 } from '../lib/types';
 import { authError, esc, fmtDate, orderCode, toast } from '../lib/ui';
-import { copyImage, copyImageAndText, copyText, itemMessage, orderSummary, waLink } from '../lib/whatsapp';
+import { copyImage, copyImageWithText, copyText, itemMessage, orderSummary, partilhar, podePartilhar, waLink } from '../lib/whatsapp';
 
 type OrderFilter = OrderStatus | 'ativas' | 'todas';
 
@@ -61,6 +61,7 @@ let prodPath: string[] = [];
 let prodEstado: 'todos' | 'visiveis' | 'ocultos' = 'todos';
 
 const ACTIVE: OrderStatus[] = ['pendente', 'paga', 'encomendada', 'enviada'];
+const PARTILHA = podePartilhar();
 
 /* ---------- arranque ---------- */
 
@@ -307,8 +308,17 @@ app.addEventListener('click', async (e) => {
     case 'img':
       await safeCopy(() => copyImage(item.imageUrl), 'Imagem copiada — cole no WhatsApp.');
       break;
-    case 'both':
-      await safeCopy(() => copyImageAndText(item.imageUrl, itemMessage(item)), 'Imagem e texto copiados — cole no WhatsApp.');
+    case 'composta':
+      await safeCopy(() => copyImageWithText(item.imageUrl, itemMessage(item)), 'Imagem com o texto copiada — cole no WhatsApp.');
+      break;
+    case 'partilhar':
+      try {
+        const r = await partilhar(item.imageUrl, itemMessage(item), item.title);
+        if (r === 'repetir') toast('Imagem preparada — toque outra vez em "Partilhar".');
+      } catch (err) {
+        console.error(err);
+        toast('Não foi possível partilhar. Use "Copiar imagem com texto".', 'err');
+      }
       break;
   }
 });
@@ -451,7 +461,8 @@ function itemBlock(o: Order, i: OrderItem, idx: number, showOrder = false): stri
         <pre class="msg">${esc(itemMessage(i))}</pre>
         ${i.notes ? `<p class="muted small">Obs. do cliente: ${esc(i.notes)}</p>` : ''}
         <div class="btns">
-          <button class="btn primary small" data-copy="both" ${a}>Copiar imagem + texto</button>
+          <button class="btn primary small" data-copy="composta" ${a} title="Uma só imagem: a foto com o tamanho, nome e número por baixo">Copiar imagem com texto</button>
+          ${PARTILHA ? `<button class="btn small" data-copy="partilhar" ${a} title="Abre a partilha do sistema: no WhatsApp vai a foto com o texto como legenda">Partilhar…</button>` : ''}
           <button class="btn ghost small" data-copy="img" ${a}>Só imagem</button>
           <button class="btn ghost small" data-copy="txt" ${a}>Só texto</button>
           <button class="btn ghost small" data-sent="${o.id}" data-i="${idx}">${i.supplierSent ? 'Desmarcar' : 'Marcar como enviado'}</button>
