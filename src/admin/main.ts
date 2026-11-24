@@ -13,6 +13,7 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
+  writeBatch,
   type Unsubscribe,
 } from 'firebase/firestore';
 import { logoHtml } from '../lib/logo';
@@ -53,6 +54,9 @@ let orderFilter: OrderFilter = 'ativas';
 let orderSearch = '';
 let queueIncludePending = false;
 let productSearch = '';
+/** Filtro da página Artigos: categoria escolhida (por níveis) e estado. */
+let prodPath: string[] = [];
+let prodEstado: 'todos' | 'visiveis' | 'ocultos' = 'todos';
 
 const ACTIVE: OrderStatus[] = ['pendente', 'paga', 'encomendada', 'enviada'];
 
@@ -451,6 +455,7 @@ function renderProducts(): void {
         <button class="btn ghost" id="reint" title="Volta a traduzir títulos e categorias a partir do nome original do fornecedor">Reinterpretar nomes (PT)</button>
         <a class="btn primary" href="#/artigos/novo">Novo artigo</a>
       </div>
+      <div id="pfiltros"></div>
       <div id="plist" class="grid"></div>
     </section>`;
   app.querySelector<HTMLInputElement>('#psearch')!.addEventListener('input', (e) => {
@@ -458,7 +463,71 @@ function renderProducts(): void {
     drawProducts();
   });
   app.querySelector<HTMLButtonElement>('#reint')!.addEventListener('click', (e) => void reinterpretarTodos(e.currentTarget as HTMLButtonElement));
+
+  // filtros e ações em massa (delegação: o conteúdo é redesenhado)
+  const filtros = app.querySelector<HTMLElement>('#pfiltros')!;
+  filtros.addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-plevel],[data-pestado],[data-bulk]');
+    if (!b) return;
+    if (b.dataset.plevel !== undefined) {
+      const level = Number(b.dataset.plevel);
+      const c = b.dataset.cat ?? '';
+      prodPath = c ? [...prodPath.slice(0, level), c] : prodPath.slice(0, level);
+      drawProducts();
+    } else if (b.dataset.pestado) {
+      prodEstado = b.dataset.pestado as typeof prodEstado;
+      drawProducts();
+    } else if (b.dataset.bulk) {
+      void mudarVisibilidade(alvoFiltro(), b.dataset.bulk === 'mostrar', b);
+    }
+  });
+  app.querySelector('#plist')!.addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-vis]');
+    if (!b) return;
+    e.preventDefault();
+    const p = products.find((x) => x.id === b.dataset.vis);
+    if (p) void mudarVisibilidade([p], !p.active, b);
+  });
   drawProducts();
+}
+
+const comecaPor = (path: string[], prefixo: string[]): boolean => prefixo.every((c, i) => path[i] === c);
+const norm = (t: string): string => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+/** Artigos da categoria escolhida e da pesquisa (sem o filtro de estado): é sobre estes que atuam os botões em massa. */
+function alvoFiltro(): Product[] {
+  const termos = norm(productSearch.trim()).split(/\s+/).filter(Boolean);
+  return products.filter((p) => {
+    if (!comecaPor(p.categoryPath, prodPath)) return false;
+    if (!termos.length) return true;
+    const t = norm(`${p.title} ${p.categoryPath.join(' ')} ${p.supplierRef} ${p.sourceTitle}`);
+    return termos.every((x) => t.includes(x));
+  });
+}
+
+/** Mostra/oculta vários artigos de uma vez (em lotes de 400 escritas). */
+async function mudarVisibilidade(lista: Product[], ativo: boolean, btn?: HTMLButtonElement): Promise<void> {
+  const alvo = lista.filter((p) => p.active !== ativo);
+  if (!alvo.length) return;
+  if (alvo.length > 1) {
+    const onde = prodPath.length ? ` de "${caminhoTexto(prodPath)}"` : '';
+    if (!confirm(`${ativo ? 'Tornar visíveis' : 'Ocultar'} ${alvo.length} artigos${onde}?`)) return;
+  }
+  if (btn) btn.disabled = true;
+  try {
+    for (let i = 0; i < alvo.length; i += 400) {
+      const lote = writeBatch(db);
+      for (const p of alvo.slice(i, i + 400)) lote.update(doc(db, 'products', p.id), { active: ativo, updatedAt: serverTimestamp() });
+      await lote.commit();
+      for (const p of alvo.slice(i, i + 400)) p.active = ativo;
+    }
+    toast(alvo.length === 1 ? (ativo ? 'Artigo visível na loja.' : 'Artigo oculto.') : `${alvo.length} artigos ${ativo ? 'visíveis na loja' : 'ocultos'}.`);
+  } catch (err) {
+    console.error(err);
+    toast('Não foi possível alterar a visibilidade.', 'err');
+  } finally {
+    drawProducts();
+  }
 }
 
 /** Nome original e pastas de um artigo (para voltar a interpretar). */
@@ -503,23 +572,68 @@ async function reinterpretarTodos(btn: HTMLButtonElement): Promise<void> {
 
 function drawProducts(): void {
   const list = app.querySelector('#plist');
-  if (!list) return;
-  const q = productSearch.trim().toLowerCase();
-  const shown = products.filter((p) => !q || `${p.title} ${p.categoryPath.join(' ')} ${p.supplierRef} ${p.sourceTitle}`.toLowerCase().includes(q));
+  const filtros = app.querySelector('#pfiltros');
+  if (!list || !filtros) return;
+
+  // se a categoria escolhida deixou de existir (ex.: artigos reinterpretados), volta ao topo
+  while (prodPath.length && !products.some((p) => comecaPor(p.categoryPath, prodPath))) prodPath = prodPath.slice(0, -1);
+
+  // botões de categoria por nível, com "visíveis/total"
+  const linhas: string[] = [];
+  for (let nivel = 0; nivel <= prodPath.length && nivel < 4; nivel++) {
+    const prefixo = prodPath.slice(0, nivel);
+    const daqui = products.filter((p) => comecaPor(p.categoryPath, prefixo));
+    const opcoes = [...new Set(daqui.map((p) => p.categoryPath[nivel]).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b, 'pt'));
+    if (!opcoes.length) continue;
+    const conta = (c: string): string => {
+      const l = daqui.filter((p) => p.categoryPath[nivel] === c);
+      return `${l.filter((p) => p.active).length}/${l.length}`;
+    };
+    const sel = prodPath[nivel] ?? '';
+    linhas.push(`<div class="chips level-${nivel}">${['', ...opcoes]
+      .map((c) => `<button class="chip ${c === sel ? 'on' : ''}" data-plevel="${nivel}" data-cat="${esc(c)}">${c ? esc(c) : nivel ? 'Todos' : 'Todas as categorias'}${c ? ` <span class="count">${conta(c)}</span>` : ''}</button>`)
+      .join('')}</div>`);
+  }
+  const semCategoria = products.filter((p) => !p.categoryPath.length).length;
+
+  const alvo = alvoFiltro();
+  const vis = alvo.filter((p) => p.active).length;
+  const ocu = alvo.length - vis;
+  const nome = prodPath.length ? caminhoTexto(prodPath) : 'Todas as categorias';
+  filtros.innerHTML = `
+    ${linhas.join('')}
+    ${semCategoria && !prodPath.length ? `<p class="muted small">${semCategoria} artigo(s) sem categoria.</p>` : ''}
+    <div class="card bulk-bar">
+      <div class="bulk-info"><b>${esc(nome)}</b><span class="muted">${alvo.length} ${alvo.length === 1 ? 'artigo' : 'artigos'}: ${vis} ${vis === 1 ? 'visível' : 'visíveis'}, ${ocu} ${ocu === 1 ? 'oculto' : 'ocultos'}</span></div>
+      <div class="chips estado">
+        ${(['todos', 'visiveis', 'ocultos'] as const)
+          .map((k) => `<button class="chip ${prodEstado === k ? 'on' : ''}" data-pestado="${k}">${{ todos: 'Todos', visiveis: 'Visíveis', ocultos: 'Ocultos' }[k]}</button>`)
+          .join('')}
+      </div>
+      <div class="btns">
+        <button class="btn primary small" data-bulk="mostrar" ${ocu ? '' : 'disabled'}>Tornar visíveis${ocu ? ` (${ocu})` : ''}</button>
+        <button class="btn small" data-bulk="ocultar" ${vis ? '' : 'disabled'}>Ocultar${vis ? ` (${vis})` : ''}</button>
+      </div>
+    </div>`;
+
+  const shown = alvo.filter((p) => (prodEstado === 'todos' ? true : prodEstado === 'visiveis' ? p.active : !p.active));
   list.innerHTML = shown.length
     ? shown
         .map(
           (p) => `
-          <a class="card product ${p.active ? '' : 'inactive'}" href="#/artigos/${encodeURIComponent(p.id)}">
-            <div class="img">${p.images[0] ? `<img loading="lazy" src="${esc(p.images[0])}" alt="">` : ''}</div>
-            <div class="title">${esc(p.title)}</div>
-            <div class="muted small">${esc(caminhoTexto(p.categoryPath))}</div>
-            <div class="muted small">${esc(p.sizes.join(' '))}</div>
+          <div class="card product ${p.active ? '' : 'inactive'}">
+            <a href="#/artigos/${encodeURIComponent(p.id)}">
+              <div class="img">${p.images[0] ? `<img loading="lazy" src="${esc(p.images[0])}" alt="">` : ''}</div>
+              <div class="title">${esc(p.title)}</div>
+              <div class="muted small">${esc(caminhoTexto(p.categoryPath))}</div>
+              <div class="muted small">${esc(p.sizes.join(' '))}</div>
+            </a>
             ${p.active ? '' : '<span class="tag">Oculto</span>'}
-          </a>`,
+            <button class="btn small vis-toggle ${p.active ? '' : 'primary'}" data-vis="${esc(p.id)}">${p.active ? 'Ocultar' : 'Mostrar na loja'}</button>
+          </div>`,
         )
         .join('')
-    : `<p class="empty">${products.length ? 'Nenhum artigo encontrado.' : 'Ainda não há artigos.'}</p>`;
+    : `<p class="empty">${products.length ? 'Nenhum artigo com estes filtros.' : 'Ainda não há artigos.'}</p>`;
 }
 
 function renderProductForm(id: string): void {
