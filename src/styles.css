@@ -256,6 +256,9 @@ input.upper { text-transform: uppercase; letter-spacing: 0.04em; }
 .side-clubes a { font-size: 0.92rem; padding: 5px 10px; }
 .cat-main { min-width: 0; }
 .chips .chip { text-decoration: none; display: inline-block; }
+.chips.epocas { align-items: center; }
+.chips.epocas .chip { font-family: var(--display); font-weight: 700; font-size: 1rem; padding: 4px 12px; }
+.chips-label { font-size: 0.85rem; font-weight: 600; color: var(--muted); margin-right: 4px; }
 #resultado { margin: -6px 0 12px; }
 #resultado:empty { display: none; }
 #resultado a { color: var(--campo); font-weight: 600; }

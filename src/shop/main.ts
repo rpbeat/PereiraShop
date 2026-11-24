@@ -11,6 +11,7 @@ import {
 } from 'firebase/auth';
 import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
 import { carregarCatalogo, type ItemIndice } from '../lib/catalogo';
+import { epocaDe, ordemEpocas } from '../lib/nomes';
 import { logoHtml } from '../lib/logo';
 import { auth, db, SHOP_NAME } from '../lib/firebase';
 import {
@@ -40,13 +41,15 @@ let user: User | null = null;
 let profile: Customer = emptyCustomer();
 let pendingProfile: Partial<Customer> | null = null;
 /** Lista leve do catálogo (vem do índice): só o necessário para a grelha e a navegação. */
-interface ItemCat { id: string; title: string; categoryPath: string[]; thumb: string }
+interface ItemCat { id: string; title: string; categoryPath: string[]; thumb: string; epoca: string }
 let products: ItemCat[] = [];
 /** Artigos completos já lidos (fotos, tamanhos, patches) — cada artigo só é lido uma vez por visita. */
 const detalhes = new Map<string, Product | null>();
 let patches = new Map<string, Patch>();
 let cart: CartItem[] = [];
 let filterPath: string[] = [];
+/** Filtro de época dentro da categoria ("2026/27", "1990/93"… ou "outras" para artigos sem época). */
+let filtroEpoca = '';
 let search = '';
 
 /* ---------- costas da camisola (pré-visualização) ---------- */
@@ -139,7 +142,7 @@ onAuthStateChanged(auth, async (u) => {
   }
   app.innerHTML = '<p class="empty">A carregar…</p>';
   try {
-    const paraItem = (i: ItemIndice): ItemCat => ({ id: i.id, title: i.t, categoryPath: i.p ?? [], thumb: i.i ?? '' });
+    const paraItem = (i: ItemIndice): ItemCat => ({ id: i.id, title: i.t, categoryPath: i.p ?? [], thumb: i.i ?? '', epoca: epocaDe(i.t) });
     const [cat, profSnap] = await Promise.all([
       carregarCatalogo(db, async () => {
         // ainda sem índice publicado: lê os artigos diretamente (mais leituras)
@@ -194,12 +197,15 @@ function renderNav(): void {
     <a href="#/carrinho" class="cart-link">Carrinho${n ? ` <span class="badge">${n}</span>` : ''}</a>`;
 }
 
-/** Endereço de uma categoria: #/c/Liga Portugal/Benfica/Crianças */
-const catHref = (path: string[]): string => (path.length ? `#/c/${path.map(encodeURIComponent).join('/')}` : '#/');
+/** Endereço de uma categoria: #/c/Liga Portugal/Benfica/Crianças (e, opcionalmente, ?epoca=2026/27) */
+const catHref = (path: string[], epoca = ''): string =>
+  (path.length ? `#/c/${path.map(encodeURIComponent).join('/')}` : '#/') + (epoca ? `?epoca=${encodeURIComponent(epoca)}` : '');
 
 function route(): void {
-  const parts = location.hash.replace(/^#\/?/, '').split('/');
+  const [caminho = '', qs = ''] = location.hash.replace(/^#\/?/, '').split('?');
+  const parts = caminho.split('/');
   const [page = '', arg = ''] = parts;
+  filtroEpoca = new URLSearchParams(qs).get('epoca') ?? '';
   window.scrollTo(0, 0);
   const sec = page === 'c' || page === 'p' ? '' : page;
   nav.querySelectorAll('a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === `#/${sec}`));
@@ -363,7 +369,7 @@ function renderCatalog(): void {
     if (!opts.length || (level === 0 && opts.length < 2 && !filterPath.length)) continue;
     const sel = filterPath[level] ?? '';
     rows.push(`<div class="chips level-${level}" ${level === filterPath.length ? 'data-next' : ''}>${['', ...opts]
-      .map((c) => `<a class="chip ${c === sel ? 'on' : ''}" href="${catHref(c ? [...prefix, c] : prefix)}">${c ? esc(c) : level ? 'Todos' : 'Tudo'}</a>`)
+      .map((c) => `<a class="chip ${c === sel ? 'on' : ''}" href="${catHref(c ? [...prefix, c] : prefix, level >= 2 ? filtroEpoca : '')}">${c ? esc(c) : level ? 'Todos' : 'Tudo'}</a>`)
       .join('')}</div>`);
   }
 
@@ -377,6 +383,7 @@ function renderCatalog(): void {
         </div>
         ${filterPath.length ? `<p class="crumbs">${['Catálogo', ...filterPath].map((c, i) => `<a href="${catHref(filterPath.slice(0, i))}">${esc(c)}</a>`).join(' › ')}</p>` : ''}
         ${rows.join('')}
+        <div class="chips epocas" id="epocas" hidden></div>
         <p class="muted small" id="resultado"></p>
         <div class="grid" id="grid"></div>
         <div id="mais"></div>
@@ -418,6 +425,8 @@ function drawGrid(): void {
   // a fila de botões do nível seguinte repete os cartões: esconde-a enquanto há cartões
   const tiles = mostraCategorias();
   app.querySelector<HTMLElement>('[data-next]')?.toggleAttribute('hidden', tiles);
+  const epocasEl = app.querySelector<HTMLElement>('#epocas');
+  epocasEl?.toggleAttribute('hidden', true);
   if (tiles) {
     info.innerHTML = '';
     drawTiles(grid);
@@ -426,12 +435,27 @@ function drawGrid(): void {
   grid.classList.remove('tiles');
   const q = search.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const terms = q.split(/\s+/).filter(Boolean);
-  const shown = products.filter((p) => {
+  const base = products.filter((p) => {
     if (!startsWith(p.categoryPath, filterPath)) return false;
     if (!terms.length) return true;
     const hay = `${p.title} ${p.categoryPath.join(' ')}`.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     return terms.every((t) => hay.includes(t));
   });
+
+  // épocas presentes nesta categoria: só aparece a fila se houver mais do que uma
+  const epocas = [...new Set(base.map((p) => p.epoca).filter(Boolean))].sort(ordemEpocas);
+  const semEpoca = base.some((p) => !p.epoca);
+  const opcoesEpoca = [...epocas, ...(semEpoca ? ['outras'] : [])];
+  if (filtroEpoca && !opcoesEpoca.includes(filtroEpoca)) filtroEpoca = '';
+  if (epocasEl && opcoesEpoca.length > 1) {
+    epocasEl.innerHTML =
+      `<span class="chips-label">Época</span>` +
+      ['', ...opcoesEpoca]
+        .map((e) => `<a class="chip ${e === filtroEpoca ? 'on' : ''}" href="${catHref(filterPath, e)}">${e ? (e === 'outras' ? 'Outras' : esc(e)) : 'Todas'}</a>`)
+        .join('');
+    epocasEl.removeAttribute('hidden');
+  }
+  const shown = filtroEpoca ? base.filter((p) => (filtroEpoca === 'outras' ? !p.epoca : p.epoca === filtroEpoca)) : base;
   const card = (p: ItemCat): string => `
     <a class="card product" href="#/p/${encodeURIComponent(p.id)}">
       <div class="img">${p.thumb ? `<img loading="lazy" decoding="async" src="${esc(p.thumb)}" alt="${esc(p.title)}">` : ''}</div>

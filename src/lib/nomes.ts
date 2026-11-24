@@ -818,3 +818,14 @@ export const caminhoDe = (s: string): string[] =>
     .map((x) => x.trim())
     .filter(Boolean)
     .slice(0, 4);
+
+/** Época indicada num título já interpretado: "2026/27", "1990/93", "2026" — ou "" se não tiver. */
+export function epocaDe(titulo: string): string {
+  const m = titulo.match(/\b((?:19|20)\d{2})\/(\d{2})\b/);
+  if (m) return `${m[1]}/${m[2]}`;
+  const a = titulo.match(/\b((?:19|20)\d{2})\b/);
+  return a ? a[1]! : '';
+}
+
+/** Ordena épocas da mais recente para a mais antiga. */
+export const ordemEpocas = (a: string, b: string): number => b.localeCompare(a, 'pt', { numeric: true });
