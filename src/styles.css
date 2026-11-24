@@ -269,6 +269,23 @@ input.upper { text-transform: uppercase; letter-spacing: 0.04em; }
   .cat-side { display: none; }
 }
 
+/* cartões de categoria (antes de escolher o clube) */
+.grid.tiles { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 18px; }
+.tile { position: relative; display: block; text-decoration: none; color: #fff; border-radius: var(--radius-lg); overflow: hidden; background: var(--relvado); aspect-ratio: 4 / 5; }
+.tile .img { position: absolute; inset: 0; }
+.tile .img img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.35s ease; }
+.tile:hover .img img { transform: scale(1.04); }
+.tile::after { content: ''; position: absolute; inset: 0; background: linear-gradient(to top, rgb(15 61 46 / 0.92) 0%, rgb(15 61 46 / 0.35) 38%, transparent 62%); }
+.tile-txt { position: absolute; left: 0; right: 0; bottom: 0; z-index: 1; padding: 14px 16px; display: grid; gap: 2px; }
+.tile-txt b { font-family: var(--display); font-weight: 900; font-size: 1.7rem; line-height: 1; letter-spacing: 0.01em; }
+.tile-txt span { font-size: 0.85rem; color: rgb(255 255 255 / 0.8); }
+.tile:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+[hidden] { display: none !important; }
+@media (max-width: 640px) {
+  .grid.tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .tile-txt b { font-size: 1.3rem; }
+}
+
 /* ---------- página do artigo ---------- */
 .product-page { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 40px; align-items: start; }
 .gallery { display: grid; gap: 12px; position: sticky; top: 88px; }

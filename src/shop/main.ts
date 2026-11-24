@@ -321,20 +321,26 @@ function renderAuth(mode: AuthMode): void {
 
 const startsWith = (path: string[], prefix: string[]): boolean => prefix.every((c, i) => path[i] === c);
 
+const conta = (prefix: string[]): number => products.filter((p) => startsWith(p.categoryPath, prefix)).length;
+const opcoes = (prefix: string[]): string[] =>
+  [...new Set(products.filter((p) => startsWith(p.categoryPath, prefix)).map((p) => p.categoryPath[prefix.length]).filter((c): c is string => !!c))]
+    .sort((a, b) => a.localeCompare(b, 'pt'));
+
+/**
+ * Até escolher um clube, o catálogo mostra cartões de categorias (1 imagem por categoria)
+ * em vez das camisolas: as fotos dos artigos só são pedidas quando o cliente escolhe o que quer ver.
+ */
+const mostraCategorias = (): boolean => !search.trim() && filterPath.length < 2 && opcoes(filterPath).length > 0;
+
 function renderCatalog(): void {
   // se a categoria do endereço já não existe, sobe um nível
   while (filterPath.length && !products.some((p) => startsWith(p.categoryPath, filterPath))) filterPath = filterPath.slice(0, -1);
-
-  const conta = (prefix: string[]): number => products.filter((p) => startsWith(p.categoryPath, prefix)).length;
-  const opcoes = (prefix: string[]): string[] =>
-    [...new Set(products.filter((p) => startsWith(p.categoryPath, prefix)).map((p) => p.categoryPath[prefix.length]).filter((c): c is string => !!c))]
-      .sort((a, b) => a.localeCompare(b, 'pt'));
 
   // barra lateral (computador): ligas e, na liga escolhida, os clubes
   const ligas = opcoes([]);
   const side = `
     <nav class="cat-side" aria-label="Categorias">
-      <a class="side-all ${filterPath.length ? '' : 'on'}" href="#/">Todo o catálogo <span>${products.length}</span></a>
+      <a class="side-all ${filterPath.length ? '' : 'on'}" href="#/">Todas as categorias <span>${products.length}</span></a>
       ${ligas
         .map((l) => {
           const aberta = filterPath[0] === l;
@@ -356,7 +362,7 @@ function renderCatalog(): void {
     const opts = opcoes(prefix);
     if (!opts.length || (level === 0 && opts.length < 2 && !filterPath.length)) continue;
     const sel = filterPath[level] ?? '';
-    rows.push(`<div class="chips level-${level}">${['', ...opts]
+    rows.push(`<div class="chips level-${level}" ${level === filterPath.length ? 'data-next' : ''}>${['', ...opts]
       .map((c) => `<a class="chip ${c === sel ? 'on' : ''}" href="${catHref(c ? [...prefix, c] : prefix)}">${c ? esc(c) : level ? 'Todos' : 'Tudo'}</a>`)
       .join('')}</div>`);
   }
@@ -388,10 +394,36 @@ const POR_PAGINA = 48;
 let mostrar = POR_PAGINA;
 let observador: IntersectionObserver | null = null;
 
+function drawTiles(grid: Element): void {
+  const cats = opcoes(filterPath);
+  grid.classList.add('tiles');
+  grid.innerHTML = cats
+    .map((c) => {
+      const path = [...filterPath, c];
+      const capa = products.find((p) => startsWith(p.categoryPath, path) && p.thumb)?.thumb ?? '';
+      const n = conta(path);
+      return `<a class="tile" href="${catHref(path)}">
+        <div class="img">${capa ? `<img loading="lazy" decoding="async" src="${esc(capa)}" alt="">` : ''}</div>
+        <div class="tile-txt"><b>${esc(c)}</b><span>${n} ${n === 1 ? 'artigo' : 'artigos'}</span></div>
+      </a>`;
+    })
+    .join('');
+}
+
 function drawGrid(): void {
   const grid = app.querySelector('#grid');
   const info = app.querySelector('#resultado');
   if (!grid || !info) return;
+  observador?.disconnect();
+  // a fila de botões do nível seguinte repete os cartões: esconde-a enquanto há cartões
+  const tiles = mostraCategorias();
+  app.querySelector<HTMLElement>('[data-next]')?.toggleAttribute('hidden', tiles);
+  if (tiles) {
+    info.innerHTML = '';
+    drawTiles(grid);
+    return;
+  }
+  grid.classList.remove('tiles');
   const q = search.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const terms = q.split(/\s+/).filter(Boolean);
   const shown = products.filter((p) => {
