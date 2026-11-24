@@ -39,7 +39,8 @@ let urls = new Map<File, string>();
 let importing = false;
 let maxImages = 8;
 
-const cleanName = (s: string): string => s.replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
+// Retira o prefixo numérico dos scripts de download ("003_Benfica…" → "Benfica…")
+const cleanName = (s: string): string => s.replace(/^\d{1,4}_/, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
 const byName = (a: File, b: File): number => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
 
 function thumb(f: File): string {

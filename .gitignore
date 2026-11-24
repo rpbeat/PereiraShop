@@ -3,3 +3,9 @@ dist
 .env.local
 .firebase
 *.log
+
+# Scripts Yupoo: dados locais
+ferramentas/yupoo/catalogo/
+ferramentas/yupoo/albuns.csv
+ferramentas/yupoo/debug_*.html
+__pycache__/

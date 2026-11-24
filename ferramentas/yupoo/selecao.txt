@@ -1,0 +1,4 @@
+# Índices de albuns.csv a descarregar.
+# Separados por vírgulas, espaços ou linhas; intervalos com hífen.
+# Exemplo:
+36-37, 142
