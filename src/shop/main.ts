@@ -146,7 +146,7 @@ onAuthStateChanged(auth, async (u) => {
     if (!profile.name && u.displayName) profile.name = u.displayName;
   } catch (e) {
     console.error(e);
-    app.innerHTML = '<p class="empty">Não foi possível carregar o catálogo. Tente recarregar a página.</p>';
+    app.innerHTML = '<p class="empty">Não foi possível carregar o catálogo. Recarrega a página.</p>';
     return;
   }
   loadCart();
@@ -209,15 +209,15 @@ function renderAuth(mode: AuthMode): void {
   app.innerHTML = `
     <div class="auth-wrap">
     <section class="pitch" aria-hidden="${mode === 'login' ? 'false' : 'true'}">
-      ${kitSvg('Quaresma', '23', '#ffffff', '#0f3d2e', 'kit-mini')}
-      <h1>Camisolas de futebol com o seu nome.</h1>
-      <p>Escolha o clube, o tamanho, o nome e o número. Tratamos da encomenda e entregamos em casa.</p>
+      ${kitSvg('Chumbo', '00', '#ffffff', '#0f3d2e', 'kit-mini')}
+      <h1><span>Pé de chumbo,</span> <span>camisola de craque.</span></h1>
+      <p>Escolhe o clube, o tamanho, o nome e o número. Em campo podes ser um desastre, mas pelo menos vais bem vestido.</p>
     </section>
     <div class="auth-side">
     <section class="auth">
       <h2>${title}</h2>
-      ${mode === 'login' ? '<p class="muted">Entre com a sua conta para ver o catálogo e fazer encomendas.</p>' : ''}
-      ${mode === 'reset' ? '<p class="muted">Indique o email da conta. Vai receber um link para definir uma nova palavra-passe.</p>' : ''}
+      ${mode === 'login' ? '<p class="muted">Entra com a tua conta para ver o catálogo e fazer encomendas.</p>' : ''}
+      ${mode === 'reset' ? '<p class="muted">Indica o email da conta. Vais receber um link para escolher uma nova palavra-passe.</p>' : ''}
       <form id="authForm" class="form">
         ${
           mode === 'register'
@@ -262,7 +262,7 @@ function renderAuth(mode: AuthMode): void {
         await signInWithEmailAndPassword(auth, email, password);
       } else if (mode === 'reset') {
         await sendPasswordResetEmail(auth, email);
-        toast('Se o email estiver registado, vai receber um link em breve.');
+        toast('Se o email estiver registado, vais receber um link em breve.');
         renderAuth('login');
       } else {
         const name = String(fd.get('name') ?? '').trim();
@@ -359,7 +359,7 @@ function drawGrid(): void {
           </a>`,
         )
         .join('')
-    : `<p class="empty">${products.length ? 'Nenhum artigo encontrado.' : 'Ainda não há artigos no catálogo.'}</p>`;
+    : `<p class="empty">${products.length ? 'Nada por aqui. Experimenta outro clube ou outra época.' : 'O catálogo ainda está no balneário. Volta daqui a pouco.'}</p>`;
 }
 
 /* ---------- artigo ---------- */
@@ -515,7 +515,7 @@ function renderCart(): void {
     app.innerHTML = `
       <section class="narrow-page">
         <h1>Carrinho</h1>
-        <p class="empty">O carrinho está vazio. <a href="#/">Ver catálogo</a></p>
+        <p class="empty">O carrinho está vazio. <a href="#/">Vai ao catálogo</a> e escolhe a tua camisola.</p>
       </section>`;
     return;
   }
@@ -547,7 +547,7 @@ function renderCart(): void {
           <label>Localidade<input name="city" required autocomplete="address-level2" value="${esc(profile.city)}"></label>
         </div>
         <label>Observações <span class="muted">(opcional)</span><textarea name="notes" rows="3" maxlength="500"></textarea></label>
-        <p class="muted small">Não há pagamento online. Depois de registar a encomenda, entramos em contacto com os dados de pagamento.</p>
+        <p class="muted small">Não há pagamento online. Depois de registares a encomenda, falamos contigo com os dados de pagamento.</p>
         <button class="btn primary big" type="submit">Registar encomenda</button>
       </form>
     </section>`;
@@ -601,11 +601,11 @@ function renderCart(): void {
       profile = customer;
       cart = [];
       saveCart();
-      toast(`Encomenda #${orderCode(ref.id)} registada. Obrigado!`);
+      toast(`Encomenda #${orderCode(ref.id)} registada. Obrigado, craque!`);
       location.hash = '#/encomendas';
     } catch (err) {
       console.error(err);
-      toast('Não foi possível registar a encomenda. Tente novamente.', 'err');
+      toast('Não foi possível registar a encomenda. Tenta outra vez.', 'err');
       btn.disabled = false;
     }
   });
@@ -648,7 +648,7 @@ async function renderOrders(): Promise<void> {
             </article>`,
           )
           .join('')
-      : '<p class="empty">Ainda não fez nenhuma encomenda. <a href="#/">Ver catálogo</a></p>';
+      : '<p class="empty">Ainda não fizeste nenhuma encomenda. <a href="#/">Vai ao catálogo</a></p>';
   } catch (err) {
     console.error(err);
     list.innerHTML = '<p class="empty">Não foi possível carregar as encomendas.</p>';
@@ -698,7 +698,7 @@ function renderAccount(): void {
     if (!user?.email) return;
     try {
       await sendPasswordResetEmail(auth, user.email);
-      toast('Enviámos um link para o seu email.');
+      toast('Enviámos um link para o teu email.');
     } catch (err) {
       toast(authError(err), 'err');
     }

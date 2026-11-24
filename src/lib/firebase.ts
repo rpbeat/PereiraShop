@@ -18,4 +18,4 @@ auth.languageCode = 'pt';
 export const db = getFirestore(app);
 export const storage = getStorage(app);
 
-export const SHOP_NAME = import.meta.env.VITE_SHOP_NAME || 'Loja';
+export const SHOP_NAME = import.meta.env.VITE_SHOP_NAME || 'Pé de Chumbo';

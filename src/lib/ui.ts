@@ -42,12 +42,12 @@ export function authError(err: unknown): string {
     case 'auth/invalid-email':
       return 'Email inválido.';
     case 'auth/too-many-requests':
-      return 'Demasiadas tentativas. Tente novamente daqui a pouco.';
+      return 'Demasiadas tentativas. Tenta outra vez daqui a pouco.';
     case 'auth/network-request-failed':
       return 'Sem ligação à internet.';
     default:
       console.error(err);
-      return 'Ocorreu um erro. Tente novamente.';
+      return 'Ocorreu um erro. Tenta outra vez.';
   }
 }
 

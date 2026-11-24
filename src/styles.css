@@ -171,7 +171,8 @@ input.upper { text-transform: uppercase; letter-spacing: 0.04em; }
 .pitch::before, .pitch::after { content: ''; position: absolute; pointer-events: none; border: 2px solid rgb(255 255 255 / 0.16); }
 .pitch::before { top: -2px; bottom: -2px; right: 18%; width: 0; border-width: 0 0 0 2px; }
 .pitch::after { width: 300px; height: 300px; border-radius: 50%; right: calc(18% - 150px); top: 50%; transform: translateY(-50%); }
-.pitch h1 { font-size: clamp(2.8rem, 6vw, 5.2rem); line-height: 0.92; max-width: 11ch; margin: 0 0 20px; position: relative; z-index: 1; }
+.pitch h1 { font-size: clamp(2.5rem, 5vw, 4.6rem); line-height: 0.95; margin: 0 0 20px; position: relative; z-index: 1; }
+.pitch h1 span { display: block; }
 .pitch p { max-width: 42ch; color: rgb(255 255 255 / 0.8); font-size: 1.05rem; margin: 0; position: relative; z-index: 1; }
 .pitch .kit-mini { position: absolute; right: clamp(16px, 7vw, 90px); top: clamp(24px, 6vw, 72px); width: clamp(120px, 15vw, 190px); z-index: 1; opacity: 0.95; }
 .auth-side { display: grid; place-items: center; padding: 40px 24px; }
@@ -360,6 +361,8 @@ input.upper { text-transform: uppercase; letter-spacing: 0.04em; }
 @media (max-width: 640px) {
   main { padding: 20px 16px 64px; }
   .auth-wrap { margin-top: -20px; margin-bottom: -64px; }
+  .pitch { padding-top: 150px; min-height: 0; }
+  .pitch .kit-mini { width: 100px; top: 22px; right: 22px; }
   .top { padding: 0 16px; gap: 0; }
   .brand { font-size: 1.6rem; }
   .top nav { margin-left: 0; width: 100%; overflow-x: auto; flex-wrap: nowrap; }
