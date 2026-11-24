@@ -43,6 +43,63 @@ let cart: CartItem[] = [];
 let filterPath: string[] = [];
 let search = '';
 
+/* ---------- costas da camisola (pré-visualização) ---------- */
+
+const KIT_PATH = 'M66 14 Q100 30 134 14 L184 38 L198 92 L160 104 L156 92 L156 226 L44 226 L44 92 L40 104 L2 92 L16 38 Z';
+
+function kitSvg(nome: string, num: string, fill = '#1e6b4c', ink = '#ffffff', extra = ''): string {
+  const n = nome.trim().toUpperCase();
+  const vazioN = !n;
+  const vazioNum = !num.trim();
+  const tl = n.length > 9 ? ` textLength="${Math.min(104, n.length * 11)}" lengthAdjust="spacingAndGlyphs"` : '';
+  return `<svg class="kit ${extra}" viewBox="0 0 200 232" role="img" aria-label="Costas da camisola">
+    <path class="body" d="${KIT_PATH}" fill="${esc(fill)}" stroke="rgb(0 0 0 / .12)" stroke-width="1.5"/>
+    <path d="M66 14 Q100 30 134 14" fill="none" stroke="rgb(0 0 0 / .18)" stroke-width="3"/>
+    <text class="nome ${vazioN ? 'vazio' : ''}" x="100" y="72" fill="${esc(ink)}"${tl}>${esc(n || 'NOME')}</text>
+    <text class="num ${vazioNum ? 'vazio' : ''}" x="100" y="170" fill="${esc(ink)}">${esc(num.trim() || '10')}</text>
+  </svg>`;
+}
+
+/** Cor dominante do centro da imagem principal (para pintar a pré-visualização). */
+function corDaCamisola(url: string): Promise<{ fill: string; ink: string } | null> {
+  return new Promise((resolve) => {
+    if (!url) return resolve(null);
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const c = document.createElement('canvas');
+        c.width = c.height = 24;
+        const ctx = c.getContext('2d', { willReadFrequently: true })!;
+        // zona central (o peito da camisola), longe do fundo da fotografia
+        const w = img.naturalWidth;
+        const h = img.naturalHeight;
+        ctx.drawImage(img, w * 0.38, h * 0.42, w * 0.24, h * 0.22, 0, 0, 24, 24);
+        const d = ctx.getImageData(0, 0, 24, 24).data;
+        // cor dominante: agrupa tons parecidos e escolhe o grupo maior (dá prioridade a cores vivas,
+        // para que numa camisola às riscas azul e branca saia azul e não uma mistura)
+        const grupos = new Map<number, { n: number; r: number; g: number; b: number; peso: number }>();
+        for (let i = 0; i < d.length; i += 4) {
+          const pr = d[i]!, pg = d[i + 1]!, pb = d[i + 2]!;
+          const k = ((pr >> 5) << 6) | ((pg >> 5) << 3) | (pb >> 5);
+          const sat = (Math.max(pr, pg, pb) - Math.min(pr, pg, pb)) / 255;
+          const gr = grupos.get(k) ?? { n: 0, r: 0, g: 0, b: 0, peso: 0 };
+          gr.n++; gr.r += pr; gr.g += pg; gr.b += pb; gr.peso += 1 + sat * 1.5;
+          grupos.set(k, gr);
+        }
+        const top = [...grupos.values()].sort((x, y) => y.peso - x.peso)[0]!;
+        const r = Math.round(top.r / top.n), g = Math.round(top.g / top.n), b = Math.round(top.b / top.n);
+        const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+        resolve({ fill: `rgb(${r} ${g} ${b})`, ink: lum > 0.6 ? '#13231c' : '#ffffff' });
+      } catch {
+        resolve(null); // imagem sem CORS: fica a cor por omissão
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
 /* ---------- carrinho (localStorage, por utilizador) ---------- */
 
 const cartKey = (): string => `cart:${user?.uid ?? ''}`;
@@ -150,8 +207,15 @@ function renderAuth(mode: AuthMode): void {
   const title = { login: 'Entrar', register: 'Criar conta', reset: 'Recuperar palavra-passe' }[mode];
   const submit = { login: 'Entrar', register: 'Criar conta', reset: 'Enviar link' }[mode];
   app.innerHTML = `
-    <section class="card auth">
-      <h1>${title}</h1>
+    <div class="auth-wrap">
+    <section class="pitch" aria-hidden="${mode === 'login' ? 'false' : 'true'}">
+      ${kitSvg('Quaresma', '23', '#ffffff', '#0f3d2e', 'kit-mini')}
+      <h1>Camisolas de futebol com o seu nome.</h1>
+      <p>Escolha o clube, o tamanho, o nome e o número. Tratamos da encomenda e entregamos em casa.</p>
+    </section>
+    <div class="auth-side">
+    <section class="auth">
+      <h2>${title}</h2>
       ${mode === 'login' ? '<p class="muted">Entre com a sua conta para ver o catálogo e fazer encomendas.</p>' : ''}
       ${mode === 'reset' ? '<p class="muted">Indique o email da conta. Vai receber um link para definir uma nova palavra-passe.</p>' : ''}
       <form id="authForm" class="form">
@@ -174,7 +238,9 @@ function renderAuth(mode: AuthMode): void {
         ${mode === 'login' ? '<a href="#" data-mode="register">Criar conta</a>' : '<a href="#" data-mode="login">Já tenho conta</a>'}
         ${mode === 'login' ? '<a href="#" data-mode="reset">Esqueci-me da palavra-passe</a>' : ''}
       </p>
-    </section>`;
+    </section>
+    </div>
+    </div>`;
 
   app.querySelectorAll<HTMLAnchorElement>('[data-mode]').forEach((a) =>
     a.addEventListener('click', (e) => {
@@ -240,8 +306,9 @@ function renderCatalog(): void {
   }
   app.innerHTML = `
     <section>
-      <div class="toolbar">
-        <input id="search" type="search" placeholder="Procurar artigo…" value="${esc(search)}">
+      <div class="cat-head">
+        <h1>${esc(filterPath[filterPath.length - 1] ?? 'Catálogo')}</h1>
+        <input id="search" type="search" placeholder="Procurar clube, época, tipo…" aria-label="Procurar" value="${esc(search)}">
       </div>
       ${filterPath.length ? `<p class="crumbs">${['Catálogo', ...filterPath].map((c, i) => `<a href="#" data-crumb="${i}">${esc(c)}</a>`).join(' › ')}</p>` : ''}
       ${rows.join('')}
@@ -335,10 +402,16 @@ function renderProduct(id: string): void {
         ${
           p.allowNameNumber
             ? `<fieldset>
-                <legend>Personalização <span class="muted">(opcional)</span></legend>
-                <div class="row">
-                  <label>Nome<input name="pname" maxlength="15" placeholder="QUARESMA" class="upper" autocomplete="off"></label>
-                  <label class="narrow">Número<input name="pnumber" inputmode="numeric" pattern="[0-9]{1,2}" maxlength="2" placeholder="23" autocomplete="off"></label>
+                <legend>Nome e número <span class="muted">(opcional)</span></legend>
+                <div class="custom">
+                  <div class="inputs">
+                    <label>Nome<input name="pname" maxlength="15" placeholder="QUARESMA" class="upper" autocomplete="off"></label>
+                    <label>Número<input name="pnumber" inputmode="numeric" pattern="[0-9]{1,2}" maxlength="2" placeholder="23" autocomplete="off"></label>
+                  </div>
+                  <div>
+                    <div id="kitPrev">${kitSvg('', '')}</div>
+                    <p class="kit-note">Pré-visualização</p>
+                  </div>
                 </div>
               </fieldset>`
             : ''
@@ -384,10 +457,26 @@ function renderProduct(id: string): void {
   });
 
   const nameInput = app.querySelector<HTMLInputElement>('input[name="pname"]');
+  const numInput = app.querySelector<HTMLInputElement>('input[name="pnumber"]');
+  const prev = app.querySelector<HTMLElement>('#kitPrev');
+  let cor = { fill: '#1e6b4c', ink: '#ffffff' };
+  const desenharKit = (): void => {
+    if (prev) prev.innerHTML = kitSvg(nameInput?.value ?? '', numInput?.value ?? '', cor.fill, cor.ink);
+  };
+  if (prev) {
+    void corDaCamisola(p.images[0] ?? '').then((c) => {
+      if (c) { cor = c; desenharKit(); }
+    });
+  }
   nameInput?.addEventListener('input', () => {
     const pos = nameInput.selectionStart;
     nameInput.value = nameInput.value.toUpperCase();
     nameInput.setSelectionRange(pos, pos);
+    desenharKit();
+  });
+  numInput?.addEventListener('input', () => {
+    numInput.value = numInput.value.replace(/\D/g, '').slice(0, 2);
+    desenharKit();
   });
 
   const form = app.querySelector<HTMLFormElement>('#addForm')!;
@@ -414,6 +503,7 @@ function renderProduct(id: string): void {
     cart.push(item);
     saveCart();
     form.reset();
+    desenharKit();
     toast('Adicionado ao carrinho.');
   });
 }
