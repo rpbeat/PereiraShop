@@ -369,7 +369,7 @@ input.upper { text-transform: uppercase; letter-spacing: 0.04em; }
   margin: 8px 0; padding: 8px 12px; background: #dcf8c6; border-radius: 8px; font: 600 0.9rem/1.45 ui-monospace, Consolas, monospace;
   white-space: pre-wrap; width: fit-content; min-width: 180px;
 }
-.order-foot { display: flex; justify-content: flex-end; }
+.order-foot { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 
 /* ---------- rodapé ---------- */
 .foot { border-top: 1px solid var(--line); color: var(--muted); font-size: 0.86rem; padding: 18px 24px; text-align: center; }

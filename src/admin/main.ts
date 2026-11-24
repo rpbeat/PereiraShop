@@ -21,6 +21,7 @@ import { auth, db, SHOP_NAME } from '../lib/firebase';
 import { criarMiniatura, deleteByUrl, uploadImage } from '../lib/storage';
 import { publicarIndice } from '../lib/catalogo';
 import { detetarPrincipal, prepararDetetor } from '../lib/fotoPrincipal';
+import { copiarConfirmacao, partilharConfirmacao } from '../lib/confirmacao';
 import { renderImport } from './import';
 import { caminhoDe, caminhoTexto, interpretar } from '../lib/nomes';
 import {
@@ -273,7 +274,7 @@ function renderLogin(): void {
 /* ---------- ações globais (delegação) ---------- */
 
 app.addEventListener('click', async (e) => {
-  const t = (e.target as HTMLElement).closest<HTMLElement>('[data-copy],[data-summary],[data-sent],[data-copy-all]');
+  const t = (e.target as HTMLElement).closest<HTMLElement>('[data-copy],[data-summary],[data-sent],[data-copy-all],[data-conf]');
   if (!t) return;
 
   if (t.dataset.copyAll !== undefined) {
@@ -289,6 +290,21 @@ app.addEventListener('click', async (e) => {
 
   if (t.dataset.summary) {
     await safeCopy(() => copyText(orderSummary(o)), 'Resumo copiado.');
+    return;
+  }
+
+  if (t.dataset.conf === 'copiar') {
+    await safeCopy(() => copiarConfirmacao(o, SHOP_NAME), 'Confirmação copiada — cole na conversa do cliente no WhatsApp.');
+    return;
+  }
+  if (t.dataset.conf === 'partilhar') {
+    try {
+      const r = await partilharConfirmacao(o, SHOP_NAME);
+      if (r === 'repetir') toast('Imagem preparada — toque outra vez em "Partilhar confirmação".');
+    } catch (err) {
+      console.error(err);
+      toast('Não foi possível partilhar. Use "Copiar confirmação".', 'err');
+    }
     return;
   }
 
@@ -442,7 +458,9 @@ function orderCard(o: Order): string {
       ${o.notes ? `<p class="note">${esc(o.notes)}</p>` : ''}
       <div class="oitems">${o.items.map((i, idx) => itemBlock(o, i, idx)).join('')}</div>
       <footer class="order-foot">
-        <button class="btn ghost small" data-summary="${o.id}">Copiar resumo da encomenda</button>
+        <button class="btn ghost small" data-summary="${o.id}">Copiar resumo (texto)</button>
+        ${PARTILHA ? `<button class="btn small" data-conf="partilhar" data-o="${o.id}">Partilhar confirmação…</button>` : ''}
+        <button class="btn primary small" data-conf="copiar" data-o="${o.id}" title="Imagem com toda a encomenda para enviar ao cliente">Copiar confirmação (imagem)</button>
       </footer>
     </article>`;
 }
