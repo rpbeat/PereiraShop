@@ -5,7 +5,7 @@ Uso:
     python etapa1_listar.py               # percorre todas as páginas
     python etapa1_listar.py --paginas 3   # só as 3 primeiras (para testar)
 
-Saída: albuns.csv  (indice;titulo;fotos;url;id) — abre bem no Excel.
+Saída: albuns.csv  (indice;titulo;fotos;url;id;capa) — abre bem no Excel.
 """
 
 from __future__ import annotations
@@ -18,31 +18,35 @@ import comum
 import config
 
 
-def listar_todas(sessao, max_paginas: int) -> list[dict]:
-    """Percorre ?page=1,2,3… até uma página não trazer álbuns novos."""
+def listar_todas(sessao, max_paginas: int, log=print, parar=lambda: False) -> list[dict]:
+    """Percorre ?page=1,2,3… até uma página não trazer álbuns novos.
+    log/parar permitem usar a função a partir do painel (mensagens e botão Parar)."""
     albuns: list[dict] = []
     vistos: set[str] = set()
     for n in range(1, max_paginas + 1):
+        if parar():
+            log("Interrompido.")
+            break
         url = comum.url_pagina(n)
-        print(f"Página {n}: {url}")
+        log(f"Página {n}: {url}")
         try:
             html = comum.obter(sessao, url, referer=config.REFERER).text
         except Exception as e:  # noqa: BLE001
-            print(f"  ✗ Erro, a parar a listagem aqui: {e}")
+            log(f"  ✗ Erro, a parar a listagem aqui: {e}")
             break
 
         novos = [a for a in comum.extrair_albuns(html) if a["id"] not in vistos]
         if not novos:
             # Página vazia ou repetida (o Yupoo devolve a última página para N alto) → fim
-            print("  Sem álbuns novos — fim da listagem.")
+            log("  Sem álbuns novos — fim da listagem.")
             if n == 1:
-                print("  ⚠ A PRIMEIRA página veio vazia: os seletores precisam de calibração.\n"
+                log("  ⚠ A PRIMEIRA página veio vazia: os seletores precisam de calibração.\n"
                       "    Corra:  python testar.py listagem --guardar-html   e veja o LEIA-ME.")
             break
         for a in novos:
             vistos.add(a["id"])
             albuns.append(a)
-        print(f"  +{len(novos)} álbuns (total {len(albuns)})")
+        log(f"  +{len(novos)} álbuns (total {len(albuns)})")
         comum.pausa(config.PAUSA_PAGINAS)
     return albuns
 
@@ -51,9 +55,9 @@ def guardar_csv(albuns: list[dict], caminho: str) -> None:
     # utf-8-sig + ';' para o Excel português abrir com acentos e colunas certas
     with open(caminho, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f, delimiter=";")
-        w.writerow(["indice", "titulo", "fotos", "url", "id"])
+        w.writerow(["indice", "titulo", "fotos", "url", "id", "capa"])
         for i, a in enumerate(albuns, start=1):
-            w.writerow([i, a["titulo"], a.get("fotos", ""), a["url"], a["id"]])
+            w.writerow([i, a["titulo"], a.get("fotos", ""), a["url"], a["id"], a.get("capa", "")])
 
 
 def main() -> int:

@@ -1,0 +1,646 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel Yupoo</title>
+<style>
+  :root {
+    --bg: #f6f6f4; --surface: #fff; --text: #16181a; --muted: #6b7076; --line: #e3e3df;
+    --accent: #c8102e; --accent-bg: #fdecef; --ok: #1f7a4d; --ok-bg: #e5f4ec; --warn: #8a5a00; --warn-bg: #fdf1d8;
+    --top: #23262b; --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body { margin: 0; display: flex; flex-direction: column; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         background: var(--bg); color: var(--text); }
+  button, input { font: inherit; color: inherit; }
+  a { color: inherit; }
+
+  /* ---------- topo ---------- */
+  header { background: var(--top); color: #fff; flex: none; }
+  .bar { padding: 10px 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .brand { font-weight: 800; letter-spacing: .02em; margin-right: 8px; }
+  .sp { flex: 1; }
+  .bar .muted { color: #b8bcc2; font-size: .85rem; }
+
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--line);
+         background: var(--surface); color: var(--text); font-weight: 600; cursor: pointer; text-decoration: none; white-space: nowrap; }
+  .btn:hover { border-color: #c9c9c4; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.dark { background: rgb(255 255 255 / .1); border-color: rgb(255 255 255 / .2); color: #fff; }
+  .btn.small { padding: 4px 9px; font-size: .82rem; }
+  .btn.link { border: 0; background: none; padding: 2px 4px; color: var(--muted); font-weight: 500; }
+  .btn.link:hover { color: var(--accent); }
+
+  /* ---------- layout ---------- */
+  .wrap { flex: 1; min-height: 0; display: grid; grid-template-columns: 280px 1fr; }
+  aside { background: var(--surface); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  .side-head { padding: 12px; border-bottom: 1px solid var(--line); display: grid; gap: 8px; }
+  .side-head input { width: 100%; padding: 7px 10px; border: 1px solid #cfd0cc; border-radius: 8px; }
+  .side-head .row { display: flex; justify-content: space-between; align-items: center; font-size: .8rem; color: var(--muted); }
+  .tree { overflow: auto; padding: 6px 6px 120px; flex: 1; }
+  .node { display: flex; align-items: center; gap: 2px; border-radius: 7px; }
+  .node:hover { background: #f1f1ee; }
+  .node.on { background: var(--accent-bg); color: var(--accent); font-weight: 650; }
+  .node .tg { width: 22px; height: 26px; border: 0; background: none; cursor: pointer; color: var(--muted); flex: none; font-size: .7rem; }
+  .node .tg.vazio { visibility: hidden; }
+  .node .nm { flex: 1; text-align: left; border: 0; background: none; padding: 5px 6px 5px 0; cursor: pointer; overflow: hidden;
+              text-overflow: ellipsis; white-space: nowrap; color: inherit; font-weight: inherit; }
+  .node .n { font-size: .72rem; color: var(--muted); padding-right: 6px; }
+  .kids { margin-left: 18px; border-left: 1px solid var(--line); padding-left: 4px; }
+  .sep { margin: 8px 6px; border-top: 1px solid var(--line); }
+
+  main { overflow: auto; padding: 0 16px 230px; min-height: 0; }
+  .tools { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 12px 0 10px; display: grid; gap: 10px; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+  .crumb { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .crumb h1 { font-size: 1.25rem; margin: 0; }
+  .crumb .muted { color: var(--muted); font-size: .85rem; }
+  .line { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  #q { width: min(230px, 100%); padding: 7px 11px; border: 1px solid #cfd0cc; border-radius: 8px; background: #fff; }
+  #q:focus, .side-head input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+  .chk { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; white-space: nowrap; font-size: .9rem; }
+  .chk input { accent-color: var(--accent); }
+  .count { color: var(--muted); font-size: .88rem; }
+  .catbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+
+  /* ---------- grelha ---------- */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 12px; }
+  .card { position: relative; background: var(--surface); border: 2px solid var(--line); border-radius: var(--radius); overflow: hidden;
+          cursor: pointer; user-select: none; display: flex; flex-direction: column; transition: border-color .1s, transform .1s; }
+  .card:hover { transform: translateY(-1px); }
+  .card.sel { border-color: var(--accent); box-shadow: 0 0 0 2px rgb(200 16 46 / .15); }
+  .card .img { aspect-ratio: 1; background: #ececea; display: grid; place-items: center; color: var(--muted); font-size: .8rem; }
+  .card .img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .card .tick { position: absolute; top: 8px; left: 8px; width: 24px; height: 24px; border-radius: 6px; background: rgb(255 255 255 / .92);
+                border: 2px solid #9a9da2; display: grid; place-items: center; font-weight: 900; color: #fff; }
+  .card.sel .tick { background: var(--accent); border-color: var(--accent); }
+  .card.sel .tick::after { content: "✓"; font-size: 15px; line-height: 1; }
+  .card .badge { position: absolute; top: 8px; right: 8px; font-size: .72rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+  .badge.done { background: var(--ok-bg); color: var(--ok); }
+  .badge.part { background: var(--warn-bg); color: var(--warn); }
+  .card .t { padding: 8px 10px 0; font-weight: 600; line-height: 1.25; font-size: .86rem; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .card .m { padding: 4px 10px 9px; display: flex; justify-content: space-between; gap: 6px; color: var(--muted); font-size: .76rem; margin-top: auto; }
+  .card .m a { text-decoration: none; }
+  .card .m a:hover { color: var(--accent); }
+  .card .club { font-size: .72rem; color: var(--muted); padding: 2px 10px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .empty { text-align: center; color: var(--muted); padding: 60px 0; }
+  .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid #ccc; border-top-color: var(--accent); border-radius: 50%; animation: r .8s linear infinite; vertical-align: -2px; }
+  @keyframes r { to { transform: rotate(360deg); } }
+  #mais { height: 1px; }
+
+  /* ---------- progresso ---------- */
+  #job { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; background: #1d2023; color: #e8e9eb; border-top: 1px solid #000; display: none; }
+  #job.on { display: block; }
+  .job-head { padding: 10px 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .job-head b { color: #fff; }
+  .prog { flex: 1 1 240px; height: 8px; background: #3a3e43; border-radius: 99px; overflow: hidden; }
+  .prog i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+  .prog.indet i { width: 30%; animation: ind 1.2s infinite ease-in-out; }
+  @keyframes ind { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
+  #log { margin: 0; padding: 0 16px 12px; max-height: 160px; overflow: auto; font: 12px/1.5 ui-monospace, Consolas, monospace; color: #b9bdc2; white-space: pre-wrap; }
+  #job.min #log { display: none; }
+
+  dialog { border: 0; border-radius: 14px; padding: 0; width: min(560px, 92vw); box-shadow: 0 20px 60px rgb(0 0 0 / .3); }
+  dialog::backdrop { background: rgb(0 0 0 / .45); }
+  .dlg { padding: 20px; display: grid; gap: 10px; }
+  .dlg h2 { margin: 0; font-size: 1.1rem; }
+  .dlg p { margin: 0; }
+  .dlg .muted { color: var(--muted); }
+  .dlg .small { font-size: .82rem; }
+  .dlg input { width: 100%; padding: 9px 11px; border: 1px solid #cfd0cc; border-radius: 8px; font-family: ui-monospace, Consolas, monospace; font-size: .9rem; }
+  .dlg input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+  .dlg-btns { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+  #bDestino { max-width: 420px; }
+  #destino { white-space: nowrap; }
+  .toast { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 30; background: #1d2023; color: #fff; padding: 10px 16px;
+           border-radius: 10px; box-shadow: 0 6px 20px rgb(0 0 0 / .25); max-width: 90vw; }
+  .toast.err { background: #b42318; }
+
+  @media (max-width: 800px) {
+    .wrap { grid-template-columns: 1fr; grid-template-rows: 38vh 1fr; }
+    aside { border-right: 0; border-bottom: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <span class="brand">Painel Yupoo</span>
+    <span class="muted" id="meta"></span>
+    <span class="sp"></span>
+    <button class="btn dark" id="bDestino" title="Pasta onde as fotos são gravadas — clique para mudar">📁 <span id="destino">…</span></button>
+    <button class="btn dark" id="bAbrir">Abrir pasta catálogo</button>
+    <a class="btn dark" href="https://pereirashop-966ed.web.app/admin#/importar" target="_blank" rel="noopener">Backoffice → Importar ↗</a>
+  </div>
+</header>
+
+<div class="wrap">
+  <aside>
+    <div class="side-head">
+      <input id="qCat" type="search" placeholder="Procurar categoria ou clube…" autocomplete="off">
+      <div class="row"><span id="catMeta"></span><button class="btn link" id="bCats" title="Voltar a ler o menu de categorias do site">↻ atualizar</button></div>
+    </div>
+    <nav class="tree" id="tree"></nav>
+  </aside>
+
+  <main id="main">
+    <div class="tools">
+      <div class="crumb"><h1 id="titulo">—</h1><span class="muted" id="sub"></span><span class="sp"></span><button class="btn small" id="bListar" hidden title="Volta a ler a listagem geral do Yupoo (≈1 min)">↻ Atualizar listagem geral</button></div>
+      <div class="catbar" id="catbar" hidden>
+        <button class="btn small" id="bRecarregar" title="Voltar a ler esta categoria no Yupoo">↻ Atualizar categoria</button>
+        <button class="btn small" id="bFilhos" hidden></button>
+        <span class="sp"></span>
+        <button class="btn small" id="bAbrirCat">Abrir pasta</button>
+        <button class="btn primary small" id="bBaixarCat" disabled>Descarregar categoria</button>
+      </div>
+      <div class="line">
+        <input id="q" type="search" placeholder="Filtrar… (ex.: 26/27 home)" autocomplete="off">
+        <label class="chk"><input type="checkbox" id="fNovos"> Ocultar já descarregados</label>
+        <label class="chk"><input type="checkbox" id="fSel"> Só selecionados</label>
+        <span class="count" id="count"></span>
+        <span class="sp"></span>
+        <button class="btn small" id="bVis">Selecionar visíveis</button>
+        <button class="btn small" id="bLimpar">Limpar seleção</button>
+        <button class="btn primary" id="bBaixar" disabled>Descarregar seleção</button>
+      </div>
+    </div>
+    <div class="grid" id="grid"></div>
+    <p class="empty" id="vazio" hidden></p>
+    <div id="mais"></div>
+  </main>
+</div>
+
+<dialog id="dlgDestino">
+  <form method="dialog" class="dlg">
+    <h2>Pasta de destino do catálogo</h2>
+    <p class="muted">As fotos descarregadas são gravadas aqui, organizadas por categoria. Cole o caminho completo da pasta
+      (no Explorador: clique na barra de endereço e copie). Se não existir, é criada.</p>
+    <input id="inDestino" placeholder="D:\Camisolas\catalogo" autocomplete="off" spellcheck="false">
+    <p class="muted small" id="dlgPadrao"></p>
+    <p class="muted small">Os álbuns já descarregados noutra pasta não são movidos. Para o painel os reconhecer como
+      "Descarregado", mova também essas pastas para o novo destino.</p>
+    <div class="dlg-btns">
+      <button class="btn" value="padrao" id="bPadrao" type="button">Repor predefinição</button>
+      <span class="sp"></span>
+      <button class="btn" value="cancel">Cancelar</button>
+      <button class="btn primary" id="bGuardarDestino" type="button">Guardar</button>
+    </div>
+  </form>
+</dialog>
+
+<section id="job" aria-live="polite">
+  <div class="job-head">
+    <b id="jTitulo"></b>
+    <span id="jAtual" class="count"></span>
+    <div class="prog" id="jProg"><i></i></div>
+    <span id="jNum" class="count"></span>
+    <button class="btn small" id="bParar">Parar</button>
+    <button class="btn small" id="bMin">Esconder registo</button>
+    <button class="btn small" id="bFechar">Fechar</button>
+  </div>
+  <pre id="log"></pre>
+</section>
+
+<script>
+'use strict';
+const $ = (s) => document.querySelector(s);
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const norm = (s) => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+const POR_PAGINA = 60;
+
+/* ---------- estado ---------- */
+let categorias = [];            // [{id, nome, filhos:[{id,nome}]}]
+let vista = { tipo: 'geral' };  // ou {tipo:'cat', id, sub, caminho:[nomes], filhos:[...]}
+let lista = [];                 // álbuns da vista atual: {id, titulo, fotos, url, temCapa, indice?, categoria:[...]}
+let estados = {};               // {id: {concluido, feitas, total, pasta}}
+let visiveis = [];
+let mostrar = POR_PAGINA;
+let ultimoClique = -1;
+let aCarregar = false;
+let pedidoVista = 0;            // ignora respostas de vistas antigas
+const abertos = new Set();      // categorias expandidas na árvore
+
+const ls = {
+  get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* sem armazenamento */ } },
+};
+// seleção: id → {id, titulo, url, categoria, indice} (sobrevive a mudar de categoria e a fechar o browser)
+let sel = new Map(ls.get('yupoo-sel2', []).filter((x) => x && x.id).map((x) => [x.id, x]));
+const guardarSel = () => ls.set('yupoo-sel2', [...sel.values()]);
+
+/* ---------- utilitários ---------- */
+function toast(msg, err = false) {
+  const t = document.createElement('div');
+  t.className = 'toast' + (err ? ' err' : '');
+  t.textContent = msg;
+  document.body.append(t);
+  setTimeout(() => t.remove(), err ? 6000 : 3000);
+}
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.erro || `HTTP ${r.status}`);
+  return d;
+}
+const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
+
+/* ---------- árvore de categorias ---------- */
+async function carregarCategorias(atualizar = false) {
+  $('#catMeta').innerHTML = '<span class="spin"></span> a ler categorias…';
+  try {
+    const d = await api('/api/categorias' + (atualizar ? '?atualizar=1' : ''));
+    categorias = d.categorias;
+    const nSub = categorias.reduce((s, c) => s + c.filhos.length, 0);
+    $('#catMeta').textContent = `${categorias.length} categorias · ${nSub} subcategorias`;
+  } catch (e) {
+    $('#catMeta').textContent = 'sem categorias';
+    toast(e.message, true);
+  }
+  desenharArvore();
+}
+
+function desenharArvore() {
+  const q = norm($('#qCat').value.trim());
+  const no = (c, sub, filhos, caminho) => {
+    const on = vista.tipo === 'cat' && vista.id === c.id;
+    const tem = filhos && filhos.length;
+    const aberto = tem && (abertos.has(c.id) || q);
+    return `<div class="node ${on ? 'on' : ''}">
+        <button class="tg ${tem ? '' : 'vazio'}" data-tg="${c.id}" aria-label="Expandir">${aberto ? '▾' : '▸'}</button>
+        <button class="nm" data-cat="${c.id}" data-sub="${sub ? 1 : 0}" data-caminho="${esc(JSON.stringify(caminho))}" title="${esc(c.nome)}">${esc(c.nome)}</button>
+        ${tem ? `<span class="n">${filhos.length}</span>` : ''}
+      </div>`;
+  };
+  let html = `<div class="node ${vista.tipo === 'geral' ? 'on' : ''}"><button class="tg vazio"></button>
+      <button class="nm" data-geral>Listagem geral (página inicial)</button></div><div class="sep"></div>`;
+  for (const c of categorias) {
+    const filhosVis = q ? c.filhos.filter((f) => norm(f.nome).includes(q)) : c.filhos;
+    if (q && !norm(c.nome).includes(q) && !filhosVis.length) continue;
+    const mostrarFilhos = q && !norm(c.nome).includes(q) ? filhosVis : c.filhos;
+    html += no(c, false, c.filhos, [c.nome]);
+    if (c.filhos.length && (abertos.has(c.id) || q)) {
+      html += `<div class="kids">${mostrarFilhos.map((f) => no(f, true, null, [c.nome, f.nome])).join('')}</div>`;
+    }
+  }
+  $('#tree').innerHTML = html;
+}
+
+$('#tree').addEventListener('click', (ev) => {
+  const tg = ev.target.closest('[data-tg]');
+  if (tg && !tg.classList.contains('vazio')) {
+    const id = tg.dataset.tg;
+    if (abertos.has(id)) abertos.delete(id); else abertos.add(id);
+    ls.set('yupoo-abertos', [...abertos]);
+    desenharArvore();
+    return;
+  }
+  const b = ev.target.closest('.nm');
+  if (!b) return;
+  if (b.dataset.geral !== undefined) { abrirGeral(); return; }
+  const id = b.dataset.cat;
+  const top = categorias.find((c) => c.id === id);
+  if (top?.filhos.length) { abertos.add(id); ls.set('yupoo-abertos', [...abertos]); }
+  abrirCategoria({ id, sub: b.dataset.sub === '1', caminho: JSON.parse(b.dataset.caminho), filhos: top?.filhos || [] });
+});
+$('#qCat').addEventListener('input', desenharArvore);
+$('#bCats').addEventListener('click', () => carregarCategorias(true));
+
+/* ---------- vistas ---------- */
+async function abrirGeral() {
+  vista = { tipo: 'geral' };
+  ls.set('yupoo-vista', vista);
+  desenharArvore();
+  const meu = ++pedidoVista;
+  definirCarregar(true, 'A ler a listagem…');
+  try {
+    const d = await api('/api/albuns');
+    if (meu !== pedidoVista) return;
+    estados = d.estados;
+    lista = d.albuns.map((a) => ({ ...a, categoria: [] }));
+    $('#sub').textContent = lista.length ? `${plural(lista.length, 'álbum', 'álbuns')} · listagem de ${d.atualizado}` : '';
+    if (!lista.length) $('#sub').textContent = 'Ainda sem listagem geral.';
+  } catch (e) { toast(e.message, true); lista = []; }
+  definirCarregar(false);
+  filtrar();
+}
+
+async function abrirCategoria(v, atualizar = false) {
+  vista = { tipo: 'cat', ...v };
+  ls.set('yupoo-vista', vista);
+  desenharArvore();
+  const meu = ++pedidoVista;
+  definirCarregar(true, atualizar ? 'A atualizar a categoria no Yupoo…' : 'A ler a categoria (a primeira vez pode demorar alguns segundos)…');
+  try {
+    const d = await api(`/api/categoria?id=${encodeURIComponent(v.id)}&sub=${v.sub ? 1 : 0}${atualizar ? '&atualizar=1' : ''}`);
+    if (meu !== pedidoVista) return;
+    lista = d.albuns.map((a) => ({ ...a, categoria: v.caminho }));
+    vista.atualizado = d.atualizado;
+    await atualizarEstados(false);
+  } catch (e) {
+    if (meu !== pedidoVista) return;
+    toast(e.message, true);
+    lista = [];
+  }
+  definirCarregar(false);
+  filtrar();
+}
+
+/* Categoria principal com clubes: junta os álbuns de todas as subcategorias */
+async function incluirFilhos() {
+  const v = vista;
+  if (v.tipo !== 'cat' || !v.filhos?.length) return;
+  const meu = pedidoVista;
+  const porId = new Map(lista.map((a) => [a.id, a]));
+  const b = $('#bFilhos');
+  b.disabled = true;
+  for (let i = 0; i < v.filhos.length; i++) {
+    const f = v.filhos[i];
+    b.innerHTML = `<span class="spin"></span> ${i + 1}/${v.filhos.length} · ${esc(f.nome)}`;
+    try {
+      const d = await api(`/api/categoria?id=${encodeURIComponent(f.id)}&sub=1`);
+      if (meu !== pedidoVista) return;
+      for (const a of d.albuns) porId.set(a.id, { ...a, categoria: [v.caminho[0], f.nome] }); // o clube tem prioridade
+    } catch (e) {
+      toast(`${f.nome}: ${e.message}`, true);
+    }
+    lista = [...porId.values()];
+    filtrar(true);
+  }
+  vista.incluiFilhos = true;
+  b.disabled = false;
+  await atualizarEstados(false);
+  filtrar(true);
+}
+
+function definirCarregar(on, msg = '') {
+  aCarregar = on;
+  if (on) {
+    $('#grid').innerHTML = '';
+    $('#vazio').hidden = false;
+    $('#vazio').innerHTML = `<span class="spin"></span> ${esc(msg)}`;
+  }
+  cabecalho();
+}
+
+function cabecalho() {
+  const cat = vista.tipo === 'cat';
+  $('#titulo').textContent = cat ? vista.caminho.join(' › ') : 'Listagem geral';
+  $('#catbar').hidden = !cat;
+  $('#bListar').hidden = cat;
+  $('#bListar').disabled = jobAtivo;
+  if (cat) {
+    $('#sub').textContent = aCarregar ? '' : `${plural(lista.length, 'álbum', 'álbuns')}${vista.atualizado ? ` · lido em ${vista.atualizado}` : ''}`;
+    const nf = vista.filhos?.length || 0;
+    const bf = $('#bFilhos');
+    bf.hidden = !nf || vista.incluiFilhos;
+    if (!bf.disabled) bf.textContent = `+ Incluir as ${nf} subcategorias (${vista.filhos?.slice(0, 3).map((f) => f.nome).join(', ')}${nf > 3 ? '…' : ''})`;
+    const falta = lista.filter((a) => !estados[a.id]?.concluido).length;
+    const bc = $('#bBaixarCat');
+    bc.textContent = !lista.length ? 'Descarregar categoria' : !falta ? '✓ Categoria descarregada'
+      : falta === lista.length ? `Descarregar categoria (${lista.length})` : `Descarregar os ${falta} em falta (de ${lista.length})`;
+    bc.disabled = aCarregar || !falta || jobAtivo;
+    $('#bRecarregar').disabled = aCarregar;
+  }
+}
+
+/* ---------- filtro e grelha ---------- */
+function filtrar(manterScroll = false) {
+  const termos = norm($('#q').value).split(/\s+/).filter(Boolean);
+  const semFeitos = $('#fNovos').checked;
+  const soSel = $('#fSel').checked;
+  const base = soSel ? [...sel.values()].map((s) => lista.find((a) => a.id === s.id) || { ...s, temCapa: true, fotos: '' }) : lista;
+  visiveis = base.filter((a) => {
+    if (semFeitos && estados[a.id]?.concluido) return false;
+    if (!termos.length) return true;
+    const t = norm(`${a.titulo} ${(a.categoria || []).join(' ')} ${a.indice ? '#' + a.indice : ''}`);
+    return termos.every((x) => t.includes(x));
+  });
+  if (!manterScroll) { mostrar = POR_PAGINA; ultimoClique = -1; $('#main').scrollTop = 0; }
+  desenhar();
+}
+
+function cartao(a, i) {
+  const e = estados[a.id];
+  const badge = e ? (e.concluido ? '<span class="badge done">Descarregado</span>' : `<span class="badge part">Parcial ${e.feitas}/${e.total}</span>`) : '';
+  const clube = vista.tipo === 'cat' && a.categoria?.length > 1 && vista.caminho.length === 1 ? a.categoria[1]
+    : $('#fSel').checked && a.categoria?.length ? a.categoria.join(' › ') : '';
+  const fotos = a.fotos ? `${a.fotos} ${a.fotos === '1' ? 'foto' : 'fotos'}` : '';
+  return `
+    <div class="card ${sel.has(a.id) ? 'sel' : ''}" data-i="${i}" data-id="${esc(a.id)}" title="${esc(a.titulo)}">
+      <div class="img">${a.temCapa ? `<img loading="lazy" src="/capa?id=${encodeURIComponent(a.id)}" alt="" onerror="this.replaceWith('sem capa')">` : 'sem capa'}</div>
+      <span class="tick"></span>${badge}
+      ${clube ? `<div class="club">${esc(clube)}</div>` : ''}
+      <div class="t">${esc(a.titulo)}</div>
+      <div class="m"><span>${a.indice ? `#${a.indice}${fotos ? ' · ' : ''}` : ''}${fotos}</span>
+        <a href="${esc(a.url)}" target="_blank" rel="noopener" data-link>Yupoo ↗</a></div>
+    </div>`;
+}
+
+function desenhar() {
+  if (aCarregar) return;
+  $('#grid').innerHTML = visiveis.slice(0, mostrar).map(cartao).join('');
+  const vazio = $('#vazio');
+  vazio.hidden = visiveis.length > 0;
+  vazio.textContent = lista.length || $('#fSel').checked
+    ? 'Nenhum álbum corresponde aos filtros.'
+    : vista.tipo === 'cat'
+      ? (vista.filhos?.length && !vista.incluiFilhos ? 'Esta categoria não tem álbuns diretos. Use "+ Incluir as subcategorias" ou escolha um clube à esquerda.' : 'Nenhum álbum nesta categoria. Se achar que devia haver, veja o debug_categoria.html na pasta.')
+      : 'Ainda não há listagem geral.';
+  contadores();
+}
+
+function contadores() {
+  $('#count').textContent = `${visiveis.length} visíveis · ${sel.size} selecionados`;
+  const b = $('#bBaixar');
+  b.textContent = sel.size ? `Descarregar seleção (${sel.size})` : 'Descarregar seleção';
+  b.disabled = !sel.size || jobAtivo;
+  cabecalho();
+}
+
+new IntersectionObserver((ent) => {
+  if (ent[0].isIntersecting && mostrar < visiveis.length && !aCarregar) {
+    $('#grid').insertAdjacentHTML('beforeend', visiveis.slice(mostrar, mostrar + POR_PAGINA).map((a, k) => cartao(a, mostrar + k)).join(''));
+    mostrar += POR_PAGINA;
+  }
+}, { root: $('#main'), rootMargin: '600px' }).observe($('#mais'));
+
+/* ---------- seleção (clique; Shift+clique = intervalo) ---------- */
+const paraSel = (a) => ({ id: a.id, titulo: a.titulo, url: a.url, categoria: a.categoria || [], indice: a.indice || 0 });
+$('#grid').addEventListener('click', (ev) => {
+  if (ev.target.closest('[data-link]')) return;
+  const c = ev.target.closest('.card');
+  if (!c) return;
+  const i = Number(c.dataset.i);
+  const ligar = !sel.has(c.dataset.id);
+  const de = ev.shiftKey && ultimoClique >= 0 ? Math.min(ultimoClique, i) : i;
+  const ate = ev.shiftKey && ultimoClique >= 0 ? Math.max(ultimoClique, i) : i;
+  for (let k = de; k <= ate; k++) {
+    const a = visiveis[k];
+    if (!a) continue;
+    if (ligar) sel.set(a.id, paraSel(a)); else sel.delete(a.id);
+    $(`.card[data-i="${k}"]`)?.classList.toggle('sel', ligar);
+  }
+  ultimoClique = i;
+  guardarSel();
+  contadores();
+});
+
+$('#q').addEventListener('input', () => filtrar());
+$('#fNovos').addEventListener('change', () => filtrar());
+$('#fSel').addEventListener('change', () => filtrar());
+$('#bVis').addEventListener('click', () => { visiveis.forEach((a) => sel.set(a.id, paraSel(a))); guardarSel(); filtrar(true); });
+$('#bLimpar').addEventListener('click', () => {
+  if (sel.size && !confirm(`Limpar ${sel.size} selecionados (de todas as categorias)?`)) return;
+  sel.clear(); guardarSel(); filtrar(true);
+});
+
+/* ---------- ações ---------- */
+async function descarregar(albuns) {
+  try {
+    await api('/api/baixar', { albuns });
+    jobVisivel = true;
+    vigiar();
+  } catch (e) { toast(e.message, true); }
+}
+$('#bBaixar').addEventListener('click', () => {
+  const albuns = [...sel.values()];
+  const feitos = albuns.filter((a) => estados[a.id]?.concluido).length;
+  if (feitos && !confirm(`${feitos} dos ${albuns.length} já estão descarregados e serão saltados. Continuar?`)) return;
+  descarregar(albuns);
+});
+$('#bBaixarCat').addEventListener('click', () => {
+  const falta = lista.filter((a) => !estados[a.id]?.concluido);
+  if (!falta.length) return;
+  const filhosAviso = vista.filhos?.length && !vista.incluiFilhos ? `\n\nNota: as ${vista.filhos.length} subcategorias (clubes) não estão incluídas. Use "+ Incluir as subcategorias" primeiro, se as quiser.` : '';
+  if (!confirm(`Descarregar ${plural(falta.length, 'álbum', 'álbuns')} de "${vista.caminho.join(' › ')}"?${filhosAviso}`)) return;
+  descarregar(falta.map(paraSel));
+});
+$('#bRecarregar').addEventListener('click', () => {
+  if (vista.tipo !== 'cat') return;
+  const { id, sub, caminho, filhos } = vista;
+  abrirCategoria({ id, sub, caminho, filhos }, true);
+});
+$('#bFilhos').addEventListener('click', incluirFilhos);
+$('#bListar').addEventListener('click', async () => {
+  if (!confirm('Voltar a ler a listagem geral do Yupoo? Demora cerca de um minuto.')) return;
+  try { await api('/api/listar', {}); jobVisivel = true; vigiar(); } catch (e) { toast(e.message, true); }
+});
+$('#bAbrir').addEventListener('click', () => abrirPasta([]));
+$('#bAbrirCat').addEventListener('click', () => abrirPasta(vista.caminho || []));
+async function abrirPasta(categoria) {
+  try { const d = await api('/api/abrir', { categoria }); if (!d.ok) toast('Pasta: ' + d.pasta); } catch (e) { toast(e.message, true); }
+}
+
+/* ---------- progresso do download ---------- */
+let jobAtivo = false;
+let jobVisivel = false;
+let timer = 0;
+let ticks = 0;
+let seqVista = -1;
+
+async function atualizarEstados(redesenhar = true) {
+  try { estados = (await api('/api/albuns')).estados; } catch { return; }
+  if (!redesenhar) return;
+  document.querySelectorAll('.card').forEach((c) => {
+    c.querySelector('.badge')?.remove();
+    const e = estados[c.dataset.id];
+    if (!e) return;
+    c.querySelector('.tick').insertAdjacentHTML('afterend', e.concluido
+      ? '<span class="badge done">Descarregado</span>'
+      : `<span class="badge part">Parcial ${e.feitas}/${e.total}</span>`);
+  });
+  cabecalho();
+}
+
+$('#bParar').addEventListener('click', () => api('/api/parar', {}).catch((e) => toast(e.message, true)));
+$('#bMin').addEventListener('click', () => {
+  $('#job').classList.toggle('min');
+  $('#bMin').textContent = $('#job').classList.contains('min') ? 'Mostrar registo' : 'Esconder registo';
+});
+$('#bFechar').addEventListener('click', () => { jobVisivel = false; $('#job').classList.remove('on'); });
+
+async function vigiar() {
+  clearTimeout(timer);
+  let s;
+  try { s = await api('/api/estado'); } catch { timer = setTimeout(vigiar, 3000); return; }
+  jobAtivo = s.ativo;
+  if (s.ativo) jobVisivel = true;
+  $('#job').classList.toggle('on', jobVisivel && (s.ativo || s.log.length > 0));
+  const listar = s.tipo === 'listar';
+  $('#jTitulo').textContent = s.ativo ? (s.parar ? 'A parar…' : listar ? 'A atualizar a listagem geral…' : 'A descarregar…')
+    : (listar ? 'Listagem terminada' : 'Download terminado');
+  $('#jAtual').textContent = s.atual || '';
+  const prog = $('#jProg');
+  const indet = s.ativo && (listar || !s.total);
+  prog.classList.toggle('indet', indet);
+  prog.firstElementChild.style.width = indet ? '' : `${s.total ? Math.round((s.feitos / s.total) * 100) : 100}%`;
+  $('#jNum').textContent = listar ? '' : `${s.feitos}/${s.total} álbuns · ${s.imagens} imagens${s.erros ? ` · ${s.erros} erros` : ''}`;
+  $('#bParar').hidden = !s.ativo;
+  $('#bFechar').hidden = s.ativo;
+  const log = $('#log');
+  const noFim = log.scrollTop + log.clientHeight >= log.scrollHeight - 20;
+  log.textContent = s.log.join('\n');
+  if (noFim) log.scrollTop = log.scrollHeight;
+  contadores();
+  if (seqVista !== -1 && s.seq !== seqVista) {
+    if (listar && vista.tipo === 'geral') abrirGeral(); else await atualizarEstados();
+  }
+  seqVista = s.seq;
+  if (s.ativo) {
+    if (++ticks % 5 === 0) atualizarEstados();
+    timer = setTimeout(vigiar, 1000);
+  } else {
+    timer = setTimeout(vigiar, 5000);
+  }
+}
+
+/* ---------- pasta de destino ---------- */
+let defs = {};
+async function carregarDefinicoes() {
+  try {
+    defs = await api('/api/definicoes');
+    const p = defs.pasta_catalogo || '';
+    $('#destino').textContent = p.length > 42 ? '…' + p.slice(-41) : p;
+    $('#bDestino').title = `Destino dos downloads: ${defs.pasta_catalogo}\nClique para mudar`;
+  } catch { /* ignorar */ }
+}
+async function guardarDestino(valor) {
+  try {
+    const d = await api('/api/definicoes', { pasta_catalogo: valor });
+    $('#dlgDestino').close();
+    toast('Destino: ' + d.pasta_catalogo);
+    await carregarDefinicoes();
+    await atualizarEstados();
+    filtrar(true);
+  } catch (e) { toast(e.message, true); }
+}
+$('#bDestino').addEventListener('click', () => {
+  $('#inDestino').value = defs.pasta_catalogo || '';
+  $('#dlgPadrao').textContent = `Predefinição: ${defs.padrao || ''}`;
+  $('#dlgDestino').showModal();
+  $('#inDestino').select();
+});
+$('#bGuardarDestino').addEventListener('click', () => guardarDestino($('#inDestino').value));
+$('#inDestino').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); guardarDestino($('#inDestino').value); } });
+$('#bPadrao').addEventListener('click', () => guardarDestino(''));
+
+/* ---------- arranque ---------- */
+(async () => {
+  ls.get('yupoo-abertos', []).forEach((id) => abertos.add(id));
+  carregarDefinicoes();
+  await carregarCategorias();
+  const v = ls.get('yupoo-vista', null);
+  if (v?.tipo === 'cat' && v.id) {
+    const top = categorias.find((c) => c.id === v.id);
+    abrirCategoria({ id: v.id, sub: !!v.sub, caminho: v.caminho || ['?'], filhos: top?.filhos || [] });
+  } else {
+    abrirGeral();
+  }
+  vigiar();
+})();
+</script>
+</body>
+</html>

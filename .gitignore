@@ -9,3 +9,8 @@ ferramentas/yupoo/catalogo/
 ferramentas/yupoo/albuns.csv
 ferramentas/yupoo/debug_*.html
 __pycache__/
+ferramentas/yupoo/.cache_capas/
+ferramentas/yupoo/.cache_categorias/
+ferramentas/yupoo/categorias.json
+ferramentas/yupoo/definicoes.json
+ferramentas/yupoo/titulos.json

@@ -40,7 +40,7 @@ let pendingProfile: Partial<Customer> | null = null;
 let products: Product[] = [];
 let patches = new Map<string, Patch>();
 let cart: CartItem[] = [];
-let filterCat = '';
+let filterPath: string[] = [];
 let search = '';
 
 /* ---------- carrinho (localStorage, por utilizador) ---------- */
@@ -83,7 +83,7 @@ onAuthStateChanged(auth, async (u) => {
     ]);
     products = pSnap.docs
       .map((d) => toProduct(d.id, d.data()))
-      .sort((a, b) => a.category.localeCompare(b.category, 'pt') || a.title.localeCompare(b.title, 'pt'));
+      .sort((a, b) => a.categoryPath.join('\u0000').localeCompare(b.categoryPath.join('\u0000'), 'pt') || a.title.localeCompare(b.title, 'pt'));
     patches = new Map(ptSnap.docs.map((d) => [d.id, toPatch(d.id, d.data())]));
     profile = { ...toCustomer(profSnap.data()), ...(pendingProfile ?? {}) };
     if (!profile.name && u.displayName) profile.name = u.displayName;
@@ -223,26 +223,43 @@ function renderAuth(mode: AuthMode): void {
 
 /* ---------- catálogo ---------- */
 
+const startsWith = (path: string[], prefix: string[]): boolean => prefix.every((c, i) => path[i] === c);
+
 function renderCatalog(): void {
-  const cats = [...new Set(products.map((p) => p.category).filter(Boolean))];
+  // uma fila de botões por nível: Liga → Clube → Tipo
+  const rows: string[] = [];
+  for (let level = 0; level <= filterPath.length && level < 4; level++) {
+    const prefix = filterPath.slice(0, level);
+    const opts = [...new Set(products.filter((p) => startsWith(p.categoryPath, prefix)).map((p) => p.categoryPath[level]).filter((c): c is string => !!c))]
+      .sort((a, b) => a.localeCompare(b, 'pt'));
+    if (!opts.length || (level === 0 && opts.length < 2 && !filterPath.length)) continue;
+    const sel = filterPath[level] ?? '';
+    rows.push(`<div class="chips level-${level}">${['', ...opts]
+      .map((c) => `<button class="chip ${c === sel ? 'on' : ''}" data-level="${level}" data-cat="${esc(c)}">${c ? esc(c) : level ? 'Todos' : 'Tudo'}</button>`)
+      .join('')}</div>`);
+  }
   app.innerHTML = `
     <section>
       <div class="toolbar">
         <input id="search" type="search" placeholder="Procurar artigo…" value="${esc(search)}">
       </div>
-      ${
-        cats.length > 1
-          ? `<div class="chips">${['', ...cats]
-              .map((c) => `<button class="chip ${c === filterCat ? 'on' : ''}" data-cat="${esc(c)}">${c ? esc(c) : 'Todos'}</button>`)
-              .join('')}</div>`
-          : ''
-      }
+      ${filterPath.length ? `<p class="crumbs">${['Catálogo', ...filterPath].map((c, i) => `<a href="#" data-crumb="${i}">${esc(c)}</a>`).join(' › ')}</p>` : ''}
+      ${rows.join('')}
       <div class="grid" id="grid"></div>
     </section>`;
 
   app.querySelectorAll<HTMLButtonElement>('[data-cat]').forEach((b) =>
     b.addEventListener('click', () => {
-      filterCat = b.dataset.cat ?? '';
+      const level = Number(b.dataset.level);
+      const c = b.dataset.cat ?? '';
+      filterPath = c ? [...filterPath.slice(0, level), c] : filterPath.slice(0, level);
+      renderCatalog();
+    }),
+  );
+  app.querySelectorAll<HTMLAnchorElement>('[data-crumb]').forEach((a) =>
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      filterPath = filterPath.slice(0, Number(a.dataset.crumb));
       renderCatalog();
     }),
   );
@@ -256,10 +273,14 @@ function renderCatalog(): void {
 function drawGrid(): void {
   const grid = app.querySelector('#grid');
   if (!grid) return;
-  const q = search.trim().toLowerCase();
-  const shown = products.filter(
-    (p) => (!filterCat || p.category === filterCat) && (!q || `${p.title} ${p.category}`.toLowerCase().includes(q)),
-  );
+  const q = search.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const terms = q.split(/\s+/).filter(Boolean);
+  const shown = products.filter((p) => {
+    if (!startsWith(p.categoryPath, filterPath)) return false;
+    if (!terms.length) return true;
+    const hay = `${p.title} ${p.categoryPath.join(' ')}`.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    return terms.every((t) => hay.includes(t));
+  });
   grid.innerHTML = shown.length
     ? shown
         .map(
@@ -267,7 +288,7 @@ function drawGrid(): void {
           <a class="card product" href="#/p/${encodeURIComponent(p.id)}">
             <div class="img">${p.images[0] ? `<img loading="lazy" src="${esc(p.images[0])}" alt="${esc(p.title)}">` : ''}</div>
             <div class="title">${esc(p.title)}</div>
-            ${p.category ? `<div class="muted small">${esc(p.category)}</div>` : ''}
+            ${p.categoryPath.length ? `<div class="muted small">${esc(p.categoryPath.slice(1).join(' › ') || p.categoryPath[0])}</div>` : ''}
           </a>`,
         )
         .join('')
@@ -303,7 +324,7 @@ function renderProduct(id: string): void {
         }
       </div>
       <form id="addForm" class="form details">
-        ${p.category ? `<p class="muted small">${esc(p.category)}</p>` : ''}
+        ${p.categoryPath.length ? `<p class="muted small crumbs">${p.categoryPath.map((c, i) => `<a href="#/" data-path="${i}">${esc(c)}</a>`).join(' › ')}</p>` : ''}
         <h1>${esc(p.title)}</h1>
         <fieldset>
           <legend>Tamanho</legend>
@@ -342,6 +363,12 @@ function renderProduct(id: string): void {
         <button class="btn primary big" type="submit">Adicionar ao carrinho</button>
       </form>
     </section>`;
+
+  app.querySelectorAll<HTMLAnchorElement>('[data-path]').forEach((a) =>
+    a.addEventListener('click', () => {
+      filterPath = p.categoryPath.slice(0, Number(a.dataset.path) + 1);
+    }),
+  );
 
   const mainImg = app.querySelector<HTMLImageElement>('#mainImg');
   app.querySelectorAll<HTMLButtonElement>('[data-img]').forEach((b) =>

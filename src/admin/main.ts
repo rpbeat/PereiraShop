@@ -18,6 +18,7 @@ import {
 import { auth, db, SHOP_NAME } from '../lib/firebase';
 import { deleteByUrl, uploadImage } from '../lib/storage';
 import { renderImport } from './import';
+import { caminhoDe, caminhoTexto, interpretar } from '../lib/nomes';
 import {
   SIZES_ADULT,
   SIZES_KIDS,
@@ -446,6 +447,7 @@ function renderProducts(): void {
       <div class="toolbar">
         <h1>Artigos</h1>
         <input id="psearch" type="search" placeholder="Procurar…" value="${esc(productSearch)}">
+        <button class="btn ghost" id="reint" title="Volta a traduzir títulos e categorias a partir do nome original do fornecedor">Reinterpretar nomes (PT)</button>
         <a class="btn primary" href="#/artigos/novo">Novo artigo</a>
       </div>
       <div id="plist" class="grid"></div>
@@ -454,14 +456,55 @@ function renderProducts(): void {
     productSearch = (e.target as HTMLInputElement).value;
     drawProducts();
   });
+  app.querySelector<HTMLButtonElement>('#reint')!.addEventListener('click', (e) => void reinterpretarTodos(e.currentTarget as HTMLButtonElement));
   drawProducts();
+}
+
+/** Nome original e pastas de um artigo (para voltar a interpretar). */
+function origemDe(p: Product): { titulo: string; pastas: string[] } {
+  const partes = p.supplierRef.split('/').filter(Boolean);
+  const pastaTitulo = (partes[partes.length - 1] ?? '')
+    .replace(/^\d{1,4}_/, '')
+    .replace(/\b(\d{2}) (\d{2})\b/g, '$1/$2');
+  return { titulo: p.sourceTitle || pastaTitulo || p.title, pastas: partes.slice(0, -1) };
+}
+
+async function reinterpretarTodos(btn: HTMLButtonElement): Promise<void> {
+  const alvo = products.map((p) => ({ p, o: origemDe(p) })).map(({ p, o }) => ({ p, o, r: interpretar(o.titulo, o.pastas) }))
+    .filter(({ p, r }) => r.titulo !== p.title || caminhoTexto(r.categorias) !== caminhoTexto(p.categoryPath));
+  if (!alvo.length) {
+    toast('Todos os artigos já estão com os nomes e categorias interpretados.');
+    return;
+  }
+  const exemplo = alvo.slice(0, 3).map(({ p, r }) => `• ${p.title}\n   → ${r.titulo}\n   (${caminhoTexto(r.categorias)})`).join('\n');
+  if (!confirm(`Atualizar título e categorias de ${alvo.length} artigo(s)?\n\n${exemplo}${alvo.length > 3 ? '\n…' : ''}\n\nAs alterações feitas à mão nesses artigos são substituídas.`)) return;
+  btn.disabled = true;
+  let ok = 0;
+  for (const { p, o, r } of alvo) {
+    btn.textContent = `A atualizar ${ok + 1}/${alvo.length}…`;
+    try {
+      await updateDoc(doc(db, 'products', p.id), {
+        title: r.titulo,
+        category: r.categorias[0] ?? '',
+        categoryPath: r.categorias,
+        sourceTitle: o.titulo,
+        updatedAt: serverTimestamp(),
+      });
+      ok++;
+    } catch (err) {
+      console.error(err);
+    }
+  }
+  await loadProducts();
+  toast(`${ok} de ${alvo.length} artigos atualizados.`, ok === alvo.length ? 'ok' : 'err');
+  renderProducts();
 }
 
 function drawProducts(): void {
   const list = app.querySelector('#plist');
   if (!list) return;
   const q = productSearch.trim().toLowerCase();
-  const shown = products.filter((p) => !q || `${p.title} ${p.category} ${p.supplierRef}`.toLowerCase().includes(q));
+  const shown = products.filter((p) => !q || `${p.title} ${p.categoryPath.join(' ')} ${p.supplierRef} ${p.sourceTitle}`.toLowerCase().includes(q));
   list.innerHTML = shown.length
     ? shown
         .map(
@@ -469,7 +512,8 @@ function drawProducts(): void {
           <a class="card product ${p.active ? '' : 'inactive'}" href="#/artigos/${encodeURIComponent(p.id)}">
             <div class="img">${p.images[0] ? `<img loading="lazy" src="${esc(p.images[0])}" alt="">` : ''}</div>
             <div class="title">${esc(p.title)}</div>
-            <div class="muted small">${esc(p.category)}${p.category ? ' · ' : ''}${esc(p.sizes.join(' '))}</div>
+            <div class="muted small">${esc(caminhoTexto(p.categoryPath))}</div>
+            <div class="muted small">${esc(p.sizes.join(' '))}</div>
             ${p.active ? '' : '<span class="tag">Oculto</span>'}
           </a>`,
         )
@@ -490,7 +534,7 @@ function renderProductForm(id: string): void {
   const removed: string[] = [];
   let uploading = 0;
 
-  const cats = [...new Set(products.map((x) => x.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt'));
+  const cats = [...new Set(products.flatMap((x) => x.categoryPath.map((_, i) => caminhoTexto(x.categoryPath.slice(0, i + 1)))))].sort((a, b) => a.localeCompare(b, 'pt'));
   const extra = p.sizes.filter((s) => !SIZES_ADULT.includes(s) && !SIZES_KIDS.includes(s));
   const sizeBox = (s: string): string =>
     `<label class="size"><input type="checkbox" name="sizes" value="${esc(s)}" ${p.sizes.includes(s) ? 'checked' : ''}><span>${esc(s)}</span></label>`;
@@ -502,9 +546,10 @@ function renderProductForm(id: string): void {
       <form id="pform" class="form">
         <label>Título<input name="title" required value="${esc(p.title)}" placeholder="Benfica 2025/26 Principal"></label>
         <div class="row">
-          <label>Categoria<input name="category" list="cats" value="${esc(p.category)}" placeholder="Clubes Portugueses"></label>
+          <label>Categoria <span class="muted">(níveis separados por ›)</span><input name="categoryPath" list="cats" value="${esc(caminhoTexto(p.categoryPath))}" placeholder="Liga Portugal › Sporting › Crianças"></label>
           <label>Referência do fornecedor<input name="supplierRef" value="${esc(p.supplierRef)}" placeholder="Link do álbum ou código"></label>
         </div>
+        ${p.sourceTitle ? `<p class="muted small">Nome original: ${esc(p.sourceTitle)} · <a href="#" id="reintUm">voltar a interpretar</a></p>` : ''}
         <datalist id="cats">${cats.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>
 
         <fieldset>
@@ -609,6 +654,14 @@ function renderProductForm(id: string): void {
   });
 
   const form = app.querySelector<HTMLFormElement>('#pform')!;
+  app.querySelector('#reintUm')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    const o = origemDe(p);
+    const r = interpretar(o.titulo, o.pastas);
+    form.querySelector<HTMLInputElement>('input[name="title"]')!.value = r.titulo;
+    form.querySelector<HTMLInputElement>('input[name="categoryPath"]')!.value = caminhoTexto(r.categorias);
+    toast('Título e categoria preenchidos — reveja e guarde.');
+  });
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(form);
@@ -627,7 +680,8 @@ function renderProductForm(id: string): void {
         doc(db, 'products', pid),
         {
           title: String(fd.get('title') ?? '').trim(),
-          category: String(fd.get('category') ?? '').trim(),
+          category: caminhoDe(String(fd.get('categoryPath') ?? ''))[0] ?? '',
+          categoryPath: caminhoDe(String(fd.get('categoryPath') ?? '')),
           supplierRef: String(fd.get('supplierRef') ?? '').trim(),
           images,
           sizes,

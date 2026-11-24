@@ -5,6 +5,7 @@ from __future__ import annotations
 import random
 import re
 import time
+import unicodedata
 from urllib.parse import urljoin, urlparse, urlunparse
 
 import requests
@@ -57,6 +58,67 @@ def url_pagina(n: int) -> str:
     return f"{config.BASE_URL}{config.LISTAGEM_PATH}?{config.PARAM_PAGINA}={n}"
 
 
+def url_categoria(cat_id: str, sub: bool, n: int) -> str:
+    extra = "isSubCate=true&" if sub else ""
+    return f"{config.BASE_URL}/categories/{cat_id}?{extra}{config.PARAM_PAGINA}={n}"
+
+
+# ---------------------------------------------------------------------------
+# Categorias
+# ---------------------------------------------------------------------------
+
+def extrair_categorias(html: str) -> list[dict]:
+    """
+    Árvore de categorias do menu do site:
+      [{'id', 'nome', 'filhos': [{'id', 'nome'}, …]}, …]
+    """
+    sopa = BeautifulSoup(html, "html.parser")
+    padrao = re.compile(config.PADRAO_URL_CATEGORIA)
+    cats: list[dict] = []
+    vistos: set[str] = set()
+    for li in sopa.select(config.SELETOR_CATEGORIA_ITEM):
+        a = li.select_one(config.SELETOR_CATEGORIA_LINK)
+        m = padrao.search(a.get("href") or "") if a else None
+        if not m or m.group(1) in vistos:
+            continue
+        vistos.add(m.group(1))
+        filhos: list[dict] = []
+        f_vistos: set[str] = set()
+        for fa in li.select(config.SELETOR_SUBCATEGORIA_LINK):
+            fm = padrao.search(fa.get("href") or "")
+            if fm and fm.group(1) not in f_vistos:
+                f_vistos.add(fm.group(1))
+                filhos.append({"id": fm.group(1), "nome": fa.get_text(" ", strip=True)})
+        cats.append({"id": m.group(1), "nome": a.get_text(" ", strip=True), "filhos": filhos})
+    return cats
+
+
+def listar_categoria(sessao: requests.Session, cat_id: str, sub: bool,
+                     log=print, parar=lambda: False) -> tuple[list[dict], str]:
+    """
+    Todos os álbuns de uma categoria (percorre ?page=N até não haver novos).
+    Devolve (albuns, html_da_primeira_pagina) — o HTML serve para diagnóstico se vier vazio.
+    """
+    albuns: list[dict] = []
+    vistos: set[str] = set()
+    primeiro_html = ""
+    for n in range(1, config.MAX_PAGINAS_CATEGORIA + 1):
+        if parar():
+            break
+        html = obter(sessao, url_categoria(cat_id, sub, n), referer=config.REFERER).text
+        if n == 1:
+            primeiro_html = html
+        novos = [a for a in extrair_albuns(html) if a["id"] not in vistos]
+        if not novos:
+            break
+        for a in novos:
+            vistos.add(a["id"])
+            albuns.append(a)
+        log(f"  página {n}: +{len(novos)} (total {len(albuns)})")
+        pausa(config.PAUSA_PAGINAS)
+    return albuns, primeiro_html
+
+
 # ---------------------------------------------------------------------------
 # Listagem
 # ---------------------------------------------------------------------------
@@ -84,9 +146,12 @@ def extrair_albuns(html: str) -> list[dict]:
             el = a.select_one(config.SELETOR_ALBUM_TITULO)
             titulo = el.get_text(" ", strip=True) if el else a.get_text(" ", strip=True)
         nf = a.select_one(config.SELETOR_ALBUM_NFOTOS) if config.SELETOR_ALBUM_NFOTOS else None
+        img = a.select_one(config.SELETOR_ALBUM_CAPA) if config.SELETOR_ALBUM_CAPA else None
+        capa = next((img.get(k) for k in config.ATRIBUTOS_IMAGEM if img is not None and img.get(k)), "") or ""
         albuns.append({
             "id": album_id,
             "fotos": nf.get_text(strip=True) if nf else "",
+            "capa": normalizar_url(capa) if capa else "",
             "titulo": titulo or f"album_{album_id}",
             "url": f"{config.BASE_URL}/albums/{album_id}?uid=1",
         })
@@ -178,11 +243,21 @@ def imagens_do_album(sessao: requests.Session, url: str) -> list[str]:
 _INVALIDOS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
+def texto_pasta(texto: str, maximo: int = 0) -> str:
+    """Texto seguro para nome de pasta no Windows: sem emojis/símbolos, sem caracteres proibidos."""
+    t = unicodedata.normalize("NFC", texto)  # acentos compostos, para não se perderem a seguir
+    # remove símbolos/emojis (S*), controlo/ZWJ (C*) e seletores de variante de emoji (Mn)
+    t = "".join(c for c in t if c == " " or not unicodedata.category(c).startswith(("S", "C", "Mn")))
+    t = _INVALIDOS.sub(" ", t)
+    t = re.sub(r"\s+", " ", t).strip(" .")
+    if maximo:
+        t = t[:maximo].strip(" .")
+    return t
+
+
 def nome_pasta(indice: int, titulo: str) -> str:
-    """'{indice}_{titulo}' seguro para Windows (sem caracteres proibidos, sem ponto final)."""
-    t = _INVALIDOS.sub(" ", titulo)
-    t = re.sub(r"\s+", " ", t).strip(" .")[: config.MAX_TITULO_PASTA].strip(" .")
-    return f"{indice:03d}_{t or 'album'}"
+    """'{indice}_{titulo}' seguro para Windows."""
+    return f"{indice:03d}_{texto_pasta(titulo, config.MAX_TITULO_PASTA) or 'album'}"
 
 
 def extensao(url: str, content_type: str | None) -> str:

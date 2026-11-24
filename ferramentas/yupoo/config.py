@@ -45,8 +45,19 @@ ATRIBUTO_TITULO = "title"
 SELETOR_ALBUM_TITULO = ".album__title"
 # Número de fotos mostrado na capa (opcional; vazio se o tema não o tiver)
 SELETOR_ALBUM_NFOTOS = ".album__photonumber"
+# Imagem de capa do álbum na grelha (usada como miniatura no painel)
+SELETOR_ALBUM_CAPA = "img.album__img"
 # Filtro de segurança: só hrefs que correspondam a isto são considerados álbuns
 PADRAO_URL_ALBUM = r"/albums/(\d+)"
+
+# --------------------------------------------------------------------------
+# Categorias (menu do topo do site) — confirmados com o HTML real (24/11/2026)
+# --------------------------------------------------------------------------
+SELETOR_CATEGORIA_ITEM = "li.showheader__category_item"     # cada categoria principal
+SELETOR_CATEGORIA_LINK = "a.showheader__link"               # link da categoria principal
+SELETOR_SUBCATEGORIA_LINK = "a.showheader__child_link"      # links das subcategorias (dentro do item)
+PADRAO_URL_CATEGORIA = r"/categories/(\d+)"
+MAX_PAGINAS_CATEGORIA = 60
 
 # --------------------------------------------------------------------------
 # Seletores do ÁLBUM (/albums/<id>)
@@ -71,6 +82,26 @@ SELETOR_ALBUM_PROXIMA = None       # ex.: "a.pagination__next"
 # --------------------------------------------------------------------------
 FICHEIRO_ALBUNS = "albuns.csv"
 FICHEIRO_SELECAO = "selecao.txt"
-PASTA_CATALOGO = "catalogo"
+PASTA_CATALOGO = "catalogo"         # relativo a esta pasta, ou caminho completo (ex.: r"D:\Camisolas\catalogo")
 FICHEIRO_PROGRESSO = ".progresso.json"
+PASTA_CACHE_CAPAS = ".cache_capas"     # miniaturas do painel
+PASTA_CACHE_CATEGORIAS = ".cache_categorias"  # álbuns de cada categoria (painel)
+FICHEIRO_CATEGORIAS = "categorias.json"
+PORTA_PAINEL = 47615              # porta do painel (http://127.0.0.1:47615); se estiver ocupada usa a seguinte livre
 MAX_TITULO_PASTA = 80              # caracteres do título no nome da pasta
+
+# --------------------------------------------------------------------------
+# Definições escolhidas no painel (definicoes.json) — sobrepõem os valores acima
+# --------------------------------------------------------------------------
+import json as _json  # noqa: E402
+import os as _os  # noqa: E402
+
+FICHEIRO_DEFINICOES = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "definicoes.json")
+PASTA_CATALOGO_PADRAO = PASTA_CATALOGO
+try:
+    with open(FICHEIRO_DEFINICOES, encoding="utf-8") as _f:
+        _defs = _json.load(_f)
+    if isinstance(_defs.get("pasta_catalogo"), str) and _defs["pasta_catalogo"].strip():
+        PASTA_CATALOGO = _defs["pasta_catalogo"].strip()
+except (OSError, ValueError, AttributeError):
+    pass

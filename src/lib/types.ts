@@ -3,7 +3,12 @@ import type { DocumentData, Timestamp } from 'firebase/firestore';
 export interface Product {
   id: string;
   title: string;
+  /** Categoria de topo (= categoryPath[0]); mantida por compatibilidade. */
   category: string;
+  /** Categorias por níveis, ex.: ["Liga Portugal", "Sporting", "Crianças"]. */
+  categoryPath: string[];
+  /** Título original do fornecedor (antes da tradução). */
+  sourceTitle: string;
   /** URLs no Firebase Storage. A primeira é a principal (vai na mensagem ao fornecedor). */
   images: string[];
   sizes: string[];
@@ -97,6 +102,11 @@ export function toProduct(id: string, d: DocumentData): Product {
     id,
     title: str(d.title),
     category: str(d.category),
+    categoryPath: (() => {
+      const cp = strArr(d.categoryPath).filter(Boolean);
+      return cp.length ? cp : str(d.category) ? [str(d.category)] : [];
+    })(),
+    sourceTitle: str(d.sourceTitle),
     images: strArr(d.images),
     sizes: strArr(d.sizes),
     allowNameNumber: d.allowNameNumber !== false,

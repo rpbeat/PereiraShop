@@ -3,21 +3,29 @@ import { db } from '../lib/firebase';
 import { uploadImage } from '../lib/storage';
 import { SIZES_ADULT, SIZES_KIDS, type Patch, type Product } from '../lib/types';
 import { esc, toast } from '../lib/ui';
+import { caminhoDe, caminhoTexto, interpretar } from '../lib/nomes';
 
 /**
  * Importação em lote a partir de uma pasta local.
  *
  *   Pasta escolhida/
- *     Categoria/            ← opcional: usada como categoria
- *       Nome do artigo/     ← cada pasta com imagens = 1 artigo
- *         1.jpg 2.jpg …
+ *     Categoria/            ← opcional (ex.: Primeira Liga)
+ *       Subcategoria/       ← opcional (ex.: Sporting CP)
+ *         Nome do artigo/   ← cada pasta com imagens = 1 artigo
+ *           001.jpg 002.jpg …
+ *
+ * O nome do fornecedor (inglês) é interpretado por lib/nomes.ts: título em português,
+ * categoria por níveis (Liga › Clube › Tipo) e tamanhos indicados no título.
  */
 
 interface Draft {
   key: string;
   ref: string; // caminho relativo da pasta (guardado como supplierRef)
-  title: string;
-  category: string;
+  title: string; // título final (português, editável)
+  path: string; // categoria final "Liga › Clube › Tipo" (editável)
+  source: string; // nome original do fornecedor (pasta do artigo)
+  catPath: string[]; // pastas entre a raiz e o artigo (ex.: ["Primeira Liga", "S.L. Benfica"])
+  sizes: string[]; // tamanhos lidos do título
   files: File[];
   selected: boolean[];
   include: boolean;
@@ -38,9 +46,31 @@ let drafts: Draft[] = [];
 let urls = new Map<File, string>();
 let importing = false;
 let maxImages = 8;
+let usarInterpretacao = true;
+let usarTamanhosTitulo = true;
+
+/** Preenche título, categoria e tamanhos de um rascunho (interpretados ou tal como estão nas pastas). */
+function preencher(d: Pick<Draft, 'title' | 'path' | 'source' | 'catPath' | 'sizes'>): void {
+  if (usarInterpretacao) {
+    const r = interpretar(d.source, d.catPath);
+    d.title = r.titulo;
+    d.path = caminhoTexto(r.categorias);
+    d.sizes = r.tamanhos;
+  } else {
+    d.title = d.source;
+    d.path = caminhoTexto(d.catPath);
+    d.sizes = interpretar(d.source).tamanhos;
+  }
+}
 
 // Retira o prefixo numérico dos scripts de download ("003_Benfica…" → "Benfica…")
-const cleanName = (s: string): string => s.replace(/^\d{1,4}_/, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
+const cleanName = (s: string): string =>
+  s
+    .replace(/^\d{1,4}_/, '') // prefixo dos scripts de download ("036_…")
+    .replace(/[_]+/g, ' ')
+    .replace(/\b(\d{2}) (\d{2})\b/g, '$1/$2') // época: "26 27" → "26/27" (o "/" não é permitido em pastas)
+    .replace(/\s+/g, ' ')
+    .trim();
 const byName = (a: File, b: File): number => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
 
 function thumb(f: File): string {
@@ -53,31 +83,32 @@ function thumb(f: File): string {
 }
 
 function buildDrafts(files: File[], existing: Product[]): Draft[] {
-  const groups = new Map<string, { title: string; category: string; files: File[] }>();
+  const groups = new Map<string, { title: string; catPath: string[]; files: File[] }>();
   for (const f of files) {
     if (!IMG_EXT.test(f.name) && !f.type.startsWith('image/')) continue;
     const parts = (f.webkitRelativePath || f.name).split('/');
-    const dirs = parts.slice(0, -1); // [raiz, (categoria…), artigo]
+    const dirs = parts.slice(0, -1); // [raiz, (categoria, subcategoria…), artigo]
     if (!dirs.length) continue;
     const album = dirs[dirs.length - 1]!;
-    const category = dirs.length >= 3 ? dirs[dirs.length - 2]! : '';
+    const catPath = dirs.slice(1, -1).map(cleanName).filter(Boolean);
     const ref = dirs.slice(1).join('/') || album;
-    const g = groups.get(ref) ?? { title: cleanName(album), category: cleanName(category), files: [] };
+    const g = groups.get(ref) ?? { title: cleanName(album), catPath, files: [] };
     g.files.push(f);
     groups.set(ref, g);
   }
   const refs = new Set(existing.map((p) => p.supplierRef.toLowerCase()));
-  const titles = new Set(existing.map((p) => p.title.toLowerCase()));
+  const titles = new Set(existing.flatMap((p) => [p.title.toLowerCase(), p.sourceTitle.toLowerCase()]).filter(Boolean));
   return [...groups.entries()]
     .sort(([a], [b]) => a.localeCompare(b, 'pt', { numeric: true }))
     .map(([ref, g], k) => {
       const sorted = g.files.sort(byName);
-      const exists = refs.has(ref.toLowerCase()) || titles.has(g.title.toLowerCase());
+      const base = { title: '', path: '', source: g.title, catPath: g.catPath, sizes: [] as string[] };
+      preencher(base);
+      const exists = refs.has(ref.toLowerCase()) || titles.has(g.title.toLowerCase()) || titles.has(base.title.toLowerCase());
       return {
         key: String(k),
         ref,
-        title: g.title,
-        category: g.category,
+        ...base,
         files: sorted,
         selected: sorted.map((_, i) => i < maxImages),
         include: !exists,
@@ -97,23 +128,30 @@ export function renderImport(ctx: ImportContext): void {
     <section>
       <div class="toolbar"><h1>Importar artigos</h1></div>
       <form id="impForm" class="card form import-form">
-        <p class="muted">Descarregue os álbuns do fornecedor para uma pasta no computador e escolha-a aqui.
-          Cada subpasta com imagens passa a ser um artigo (nome da pasta = título).
-          Se houver um nível acima, é usado como categoria.</p>
-        <pre class="tree">Catálogo/                     ← pasta a escolher
-  Clubes Portugueses/          ← categoria (opcional)
-    Benfica 25-26 Principal/   ← artigo
-      1.jpg  2.jpg  3.jpg</pre>
+        <p class="muted">Escolha a pasta do catálogo descarregado. Cada subpasta com imagens passa a ser um artigo.
+          O nome do fornecedor é traduzido para português e a categoria é deduzida (Liga › Clube › Tipo);
+          pode corrigir tudo antes de importar.</p>
+        <pre class="tree">catalogo/                          ← pasta a escolher
+  Primeira Liga/                   ← categoria (opcional)
+    S.L. Benfica/                  ← subcategoria (opcional)
+      Benfica 26-27 Home Jersey/   ← artigo
+        001.jpg  002.jpg</pre>
         <div class="row">
           <label class="btn primary file">Escolher pasta<input id="dir" type="file" webkitdirectory multiple hidden></label>
           <label class="narrow">Máx. imagens por artigo<input name="maxImages" type="number" min="1" max="30" value="${maxImages}"></label>
-          <label>Categoria por omissão<input name="defCategory" list="impCats" placeholder="Usada quando a pasta não tem categoria"></label>
+          <label>Categoria por omissão<input name="defCategory" list="impCats" placeholder="Quando não for possível deduzir"></label>
         </div>
-        <datalist id="impCats">${[...new Set(ctx.products().map((p) => p.category).filter(Boolean))]
+        <div class="row">
+          <label class="check"><input type="checkbox" name="interpretar" ${usarInterpretacao ? 'checked' : ''}> Traduzir nomes e deduzir categorias</label>
+          <label class="check"><input type="checkbox" name="tamTitulo" ${usarTamanhosTitulo ? 'checked' : ''}> Usar os tamanhos indicados no título (ex.: S-4XL, 16-28)</label>
+        </div>
+        <datalist id="impCats">${[...new Set(ctx.products().flatMap((p) => p.categoryPath.map((_, i) => caminhoTexto(p.categoryPath.slice(0, i + 1)))))]
+          .sort((a, b) => a.localeCompare(b, 'pt'))
           .map((c) => `<option value="${esc(c)}">`)
           .join('')}</datalist>
         <fieldset>
           <legend>Valores aplicados a todos os artigos importados</legend>
+          <p class="muted small">Tamanhos (usados nos artigos cujo título não indica tamanhos)</p>
           <p class="muted small">Adulto</p>
           <div class="sizes">${SIZES_ADULT.map((s) => sizeBox(s, defaultSizes.includes(s))).join('')}</div>
           <p class="muted small">Criança</p>
@@ -140,6 +178,16 @@ export function renderImport(ctx: ImportContext): void {
   const form = app.querySelector<HTMLFormElement>('#impForm')!;
   const list = app.querySelector<HTMLElement>('#drafts')!;
 
+  form.querySelector<HTMLInputElement>('input[name="interpretar"]')!.addEventListener('change', (e) => {
+    usarInterpretacao = (e.target as HTMLInputElement).checked;
+    drafts.forEach((d) => d.status !== 'feito' && preencher(d));
+    draw();
+  });
+  form.querySelector<HTMLInputElement>('input[name="tamTitulo"]')!.addEventListener('change', (e) => {
+    usarTamanhosTitulo = (e.target as HTMLInputElement).checked;
+    draw();
+  });
+
   form.querySelector<HTMLInputElement>('input[name="maxImages"]')!.addEventListener('change', (e) => {
     maxImages = Math.min(30, Math.max(1, Number((e.target as HTMLInputElement).value) || 8));
     drafts.forEach((d) => (d.selected = d.files.map((_, i) => i < maxImages)));
@@ -162,7 +210,7 @@ export function renderImport(ctx: ImportContext): void {
     const d = drafts.find((x) => x.key === el.closest<HTMLElement>('[data-k]')?.dataset.k);
     if (!d) return;
     if (el.name === 'title') d.title = el.value;
-    if (el.name === 'category') d.category = el.value;
+    if (el.name === 'path') d.path = el.value;
   });
   list.addEventListener('change', (e) => {
     const el = e.target as HTMLInputElement;
@@ -224,7 +272,7 @@ export function renderImport(ctx: ImportContext): void {
         <div class="draft-head">
           <label class="check"><input type="checkbox" name="include" ${d.include ? 'checked' : ''} ${d.status === 'feito' ? 'disabled' : ''}></label>
           <input name="title" value="${esc(d.title)}" aria-label="Título" ${importing ? 'disabled' : ''}>
-          <input name="category" value="${esc(d.category)}" list="impCats" placeholder="Categoria" aria-label="Categoria" ${importing ? 'disabled' : ''}>
+          <input name="path" value="${esc(d.path)}" list="impCats" placeholder="Liga › Clube › Tipo" aria-label="Categoria" ${importing ? 'disabled' : ''}>
           <span class="muted small img-count">${sel}/${d.files.length} imagens</span>
           ${d.exists ? '<span class="tag">Já existe</span>' : ''}
           ${d.status ? `<span class="tag ${d.status === 'feito' ? 'ok' : ''}">${d.status}</span>` : ''}
@@ -232,7 +280,9 @@ export function renderImport(ctx: ImportContext): void {
         <div class="draft-imgs">${d.files
           .map((f, i) => `<button type="button" class="dimg ${d.selected[i] ? '' : 'off'}" data-img="${i}" title="${esc(f.name)}"><img loading="lazy" src="${thumb(f)}" alt=""></button>`)
           .join('')}</div>
-        <p class="muted small">${esc(d.ref)} · clique numa imagem para a incluir/excluir; a primeira selecionada fica como principal.</p>
+        <p class="muted small">Original: <b>${esc(d.source)}</b>${
+          usarTamanhosTitulo && d.sizes.length ? ` · Tamanhos: <b>${esc(d.sizes[0])}–${esc(d.sizes[d.sizes.length - 1])}</b>` : ''
+        } · clique numa imagem para a incluir/excluir; a primeira selecionada fica como principal.</p>
       </article>`;
   }
 
@@ -242,10 +292,10 @@ export function renderImport(ctx: ImportContext): void {
     const fd = new FormData(form);
     const checked = new Set(fd.getAll('sizes').map(String));
     const sizes = [...SIZES_ADULT, ...SIZES_KIDS].filter((s) => checked.has(s));
-    if (!sizes.length) return toast('Escolha pelo menos um tamanho.', 'err');
+    const precisaComuns = todo.some((d) => !(usarTamanhosTitulo && d.sizes.length));
+    if (precisaComuns && !sizes.length) return toast('Escolha pelo menos um tamanho (há artigos sem tamanhos no título).', 'err');
     const defCategory = String(fd.get('defCategory') ?? '').trim();
     const common = {
-      sizes,
       allowNameNumber: fd.has('allowNameNumber'),
       patchIds: fd.getAll('patchIds').map(String),
       active: fd.has('active'),
@@ -274,11 +324,16 @@ export function renderImport(ctx: ImportContext): void {
           const up = await Promise.all(batch.map((f, j) => uploadImage(`products/${pid}/${Date.now()}-${i + j}.jpg`, f)));
           images.push(...up);
         }
+        const path = caminhoDe(d.path);
+        const categoryPath = path.length ? path : defCategory ? caminhoDe(defCategory) : [];
         await setDoc(doc(db, 'products', pid), {
           title: d.title.trim(),
-          category: d.category.trim() || defCategory,
+          category: categoryPath[0] ?? '',
+          categoryPath,
+          sourceTitle: d.source,
           supplierRef: d.ref,
           images,
+          sizes: usarTamanhosTitulo && d.sizes.length ? d.sizes : sizes,
           ...common,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),

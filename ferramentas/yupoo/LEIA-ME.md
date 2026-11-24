@@ -1,5 +1,26 @@
 # Catálogo Yupoo — listar, escolher, descarregar
 
+## Forma recomendada: o painel
+
+**Duplo clique em `Painel.bat`** (ou `py painel.py`). Abre no browser `http://127.0.0.1:47615`:
+
+- **Categorias à esquerda**: a árvore de categorias do site (ex.: *Primeira Liga → FC Porto, S.L. Benfica, Sporting CP…*), com pesquisa. Cada categoria é lida do Yupoo na primeira vez que a abre e fica em cache (`↻ Atualizar categoria` para voltar a ler).
+- Numa categoria principal com clubes, **+ Incluir as subcategorias** junta os álbuns de todos os clubes.
+- **Descarregar categoria** descarrega a categoria inteira (só o que falta) para `catalogo\<Categoria>\<Clube>\<Título>\`.
+- A *Listagem geral* (página inicial do site) continua disponível no topo da árvore.
+- Mostra as capas dos álbuns, com filtro por várias palavras (`26/27 home`).
+- Também filtra para *ocultar já descarregados* e *só selecionados*.
+- Clique numa capa para a selecionar. **Shift+clique** seleciona um intervalo, e *Selecionar visíveis* seleciona tudo o que o filtro mostra. A seleção fica guardada no browser.
+- **Descarregar (n)** descarrega os selecionados, com barra de progresso, registo e botão **Parar**. Os álbuns ficam com a etiqueta *Descarregado* ou *Parcial x/y*. Os parciais retomam onde ficaram.
+- **Atualizar listagem** volta a ler o Yupoo (≈1 min) e regrava o `albuns.csv`.
+- **Abrir pasta catálogo** e **Backoffice → Importar** são os passos seguintes.
+
+Para fechar o painel, feche a janela preta (ou Ctrl+C nela). O painel usa as mesmas funções, pastas e `.progresso.json` que os scripts abaixo. Pode alternar entre os dois.
+
+---
+
+## Forma manual (scripts)
+
 Três passos separados: **listar** os álbuns, **escolher** à mão os que interessam e **descarregar** só esses.
 A pasta `catalogo/` resultante entra diretamente no backoffice: *Importar → Escolher pasta*.
 
@@ -14,6 +35,7 @@ A pasta `catalogo/` resultante entra diretamente no backoffice: *Importar → Es
 | `comum.py` | Pedidos HTTP com novas tentativas, leitura da listagem e do álbum |
 | `testar.py` | Testa os seletores com 1 álbum ou 1 página de listagem, sem descarregar nada |
 | `etapa1_listar.py` | Gera `albuns.csv` (indice;titulo;url;id) e não descarrega imagens |
+| `painel.py` + `painel.html` + `Painel.bat` | Painel no browser para escolher e descarregar |
 | `etapa2_baixar.py` | Descarrega os índices de `selecao.txt` para `catalogo/{indice}_{titulo}/001.jpg…` |
 
 ## Passo a passo (por esta ordem)

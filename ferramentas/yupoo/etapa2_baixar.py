@@ -78,7 +78,7 @@ def pasta_existente(album_id: str) -> Path | None:
     raiz = Path(config.PASTA_CATALOGO)
     if not raiz.exists():
         return None
-    for prog in raiz.glob(f"*/{config.FICHEIRO_PROGRESSO}"):
+    for prog in raiz.rglob(config.FICHEIRO_PROGRESSO):
         try:
             if json.loads(prog.read_text(encoding="utf-8")).get("album_id") == album_id:
                 return prog.parent
@@ -127,26 +127,30 @@ def descarregar_imagem(sessao, url: str, destino_sem_ext: Path, referer: str) ->
     return destino
 
 
-def processar_album(sessao, indice: int, album: dict, simular: bool) -> tuple[int, int]:
-    """Descarrega um álbum. Devolve (imagens_ok, imagens_com_erro)."""
-    pasta = pasta_existente(album["id"]) or Path(config.PASTA_CATALOGO) / comum.nome_pasta(indice, album["titulo"])
+def processar_album(sessao, indice: int, album: dict, simular: bool,
+                    log=print, parar=lambda: False, pasta_destino: Path | None = None) -> tuple[int, int]:
+    """Descarrega um álbum. Devolve (imagens_ok, imagens_com_erro).
+    log/parar permitem usar a função a partir do painel."""
+    # Se o álbum já foi (parcialmente) descarregado, continua na mesma pasta, esteja onde estiver
+    pasta = (pasta_existente(album["id"]) or pasta_destino
+             or Path(config.PASTA_CATALOGO) / comum.nome_pasta(indice, album["titulo"]))
     prog = ler_progresso(pasta) if pasta.exists() else {}
 
     if prog.get("concluido"):
-        print(f"  ✓ já concluído em {pasta.name} — a saltar")
+        log(f"  ✓ já concluído em {pasta.name} — a saltar")
         return 0, 0
 
     # Lista de imagens: reutiliza a guardada (mantém a numeração estável ao retomar)
     imagens: list[str] = prog.get("imagens") or []
     if not imagens:
         imagens = comum.imagens_do_album(sessao, album["url"])
-    print(f"  {len(imagens)} imagens → {pasta}")
+    log(f"  {len(imagens)} imagens → {pasta}")
     if not imagens:
-        print("  ⚠ 0 imagens: verifique os seletores com  python testar.py album <url>")
+        log("  ⚠ 0 imagens: verifique os seletores com  python testar.py album <url>")
         return 0, 1
     if simular:
         for u in imagens[:3]:
-            print(f"    {u}")
+            log(f"    {u}")
         return 0, 0
 
     pasta.mkdir(parents=True, exist_ok=True)
@@ -157,6 +161,9 @@ def processar_album(sessao, indice: int, album: dict, simular: bool) -> tuple[in
 
     ok = erros = 0
     for n, url in enumerate(imagens, start=1):
+        if parar():
+            log("  Interrompido — retoma na próxima vez.")
+            break
         num = f"{n:03d}"
         ficheiro = feitas.get(num)
         if ficheiro and (pasta / ficheiro).exists() and (pasta / ficheiro).stat().st_size > 0:
@@ -166,10 +173,10 @@ def processar_album(sessao, indice: int, album: dict, simular: bool) -> tuple[in
             feitas[num] = destino.name
             gravar_progresso(pasta, prog)
             ok += 1
-            print(f"    {num} ✓")
+            log(f"    {num} ✓")
         except Exception as e:  # noqa: BLE001 — uma imagem com erro não pára o álbum
             erros += 1
-            print(f"    {num} ✗ {e}")
+            log(f"    {num} ✗ {e}")
         comum.pausa(config.PAUSA_IMAGENS)
 
     prog["concluido"] = len(feitas) == len(imagens)
