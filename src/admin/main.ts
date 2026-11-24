@@ -20,6 +20,7 @@ import { logoHtml } from '../lib/logo';
 import { auth, db, SHOP_NAME } from '../lib/firebase';
 import { criarMiniatura, deleteByUrl, uploadImage } from '../lib/storage';
 import { publicarIndice } from '../lib/catalogo';
+import { detetarPrincipal, prepararDetetor } from '../lib/fotoPrincipal';
 import { renderImport } from './import';
 import { caminhoDe, caminhoTexto, interpretar } from '../lib/nomes';
 import {
@@ -501,9 +502,11 @@ function renderProducts(): void {
           const sem = products.filter((p) => !p.thumb && p.images[0]).length;
           return sem ? `<button class="btn small" id="thumbs" title="Imagens pequenas para a grelha da loja: menos dados para os clientes">Criar miniaturas (${sem})</button>` : '';
         })()}
+        <button class="btn small" id="detetar" title="Analisa as fotos dos artigos filtrados e propõe a frente da camisola como foto principal">Detetar fotos principais</button>
         <button class="btn small" id="publicar" title="Volta a gerar o índice que a loja usa para mostrar o catálogo">Publicar catálogo</button>
       </div>
       <div id="pfiltros"></div>
+      <div id="detPainel"></div>
       <div id="plist" class="grid"></div>
     </section>`;
   app.querySelector<HTMLInputElement>('#psearch')!.addEventListener('input', (e) => {
@@ -518,6 +521,7 @@ function renderProducts(): void {
     b.disabled = false;
   });
   app.querySelector<HTMLButtonElement>('#thumbs')?.addEventListener('click', (e) => void criarMiniaturasEmFalta(e.currentTarget as HTMLButtonElement));
+  app.querySelector<HTMLButtonElement>('#detetar')!.addEventListener('click', (e) => void detetarFotosPrincipais(e.currentTarget as HTMLButtonElement));
 
   // filtros e ações em massa (delegação: o conteúdo é redesenhado)
   const filtros = app.querySelector<HTMLElement>('#pfiltros')!;
@@ -557,6 +561,114 @@ function alvoFiltro(): Product[] {
     if (!termos.length) return true;
     const t = norm(`${p.title} ${p.categoryPath.join(' ')} ${p.supplierRef} ${p.sourceTitle}`);
     return termos.every((x) => t.includes(x));
+  });
+}
+
+/* ---------- deteção da foto principal (frente) ---------- */
+
+interface Proposta { p: Product; indice: number; seguro: boolean; aplicar: boolean }
+let detCancelar = false;
+
+async function detetarFotosPrincipais(btn: HTMLButtonElement): Promise<void> {
+  const alvo = alvoFiltro().filter((p) => p.images.length > 1);
+  const painel = app.querySelector<HTMLElement>('#detPainel');
+  if (!painel) return;
+  if (!alvo.length) {
+    toast('Não há artigos com mais de uma foto neste filtro.');
+    return;
+  }
+  const nFotos = alvo.reduce((n, p) => n + p.images.length, 0);
+  const onde = prodPath.length ? `"${caminhoTexto(prodPath)}"` : 'todas as categorias';
+  if (!confirm(`Analisar ${alvo.length} artigos (${nFotos} fotos) de ${onde}?\nDemora cerca de ${Math.max(1, Math.round((nFotos * 0.5) / 60))} min. Nada é alterado sem a sua confirmação.`)) return;
+
+  btn.disabled = true;
+  detCancelar = false;
+  const propostas: Proposta[] = [];
+  painel.innerHTML = `<div class="card det-card"><b>Deteção da foto principal</b> <span class="muted" id="detEstado">A preparar…</span>
+    <button class="btn small" id="detParar">Parar</button></div>`;
+  painel.querySelector('#detParar')!.addEventListener('click', () => (detCancelar = true));
+  const estado = (t: string): void => {
+    const el = painel.querySelector('#detEstado');
+    if (el) el.textContent = t;
+  };
+  try {
+    await prepararDetetor((pct) => estado(`A descarregar o detetor (só na 1.ª vez): ${pct}%`));
+    let k = 0;
+    for (const p of alvo) {
+      if (detCancelar) break;
+      estado(`A analisar ${++k}/${alvo.length}: ${p.title}`);
+      const r = await detetarPrincipal(p.images);
+      if (r.indice > 0 || (r.indice >= 0 && !r.seguro)) propostas.push({ p, indice: r.indice, seguro: r.seguro, aplicar: r.indice > 0 && r.seguro });
+    }
+  } catch (err) {
+    console.error(err);
+    estado('Não foi possível usar o detetor de fotos (sem ligação?).');
+    btn.disabled = false;
+    return;
+  }
+  btn.disabled = false;
+  mostrarPropostas(painel, propostas, alvo.length);
+}
+
+function mostrarPropostas(painel: HTMLElement, propostas: Proposta[], analisados: number): void {
+  const mudar = propostas.filter((x) => x.indice > 0);
+  const linha = (x: Proposta, k: number): string => `
+    <div class="det-row ${x.seguro ? '' : 'rever'}">
+      <label class="check"><input type="checkbox" data-prop="${k}" ${x.aplicar ? 'checked' : ''} ${x.indice > 0 ? '' : 'disabled'}></label>
+      <div class="det-imgs">
+        <figure><img src="${esc(x.p.thumb || x.p.images[0]!)}" alt=""><figcaption>Atual</figcaption></figure>
+        <span aria-hidden="true">›</span>
+        <figure><img src="${esc(x.p.images[x.indice]!)}" alt="" loading="lazy"><figcaption>${x.indice > 0 ? 'Proposta' : 'Mantém'}</figcaption></figure>
+      </div>
+      <div class="grow"><b>${esc(x.p.title)}</b><div class="muted small">${esc(caminhoTexto(x.p.categoryPath))}</div>
+        ${x.seguro ? '' : '<span class="tag warn">Pouca certeza: confirme</span>'}
+        <a class="small" href="#/artigos/${encodeURIComponent(x.p.id)}">Abrir artigo</a></div>
+    </div>`;
+  painel.innerHTML = `
+    <div class="card det-card">
+      <div class="det-head">
+        <div><b>Deteção da foto principal</b>
+          <div class="muted small">${analisados} artigos analisados: ${mudar.length} com outra foto proposta, ${propostas.filter((x) => !x.seguro).length} com pouca certeza.</div></div>
+        <div class="btns">
+          <button class="btn small" id="detFechar">Fechar</button>
+          <button class="btn primary small" id="detAplicar" ${mudar.length ? '' : 'disabled'}>Aplicar selecionados</button>
+        </div>
+      </div>
+      ${propostas.length ? `<div class="det-list">${propostas.map(linha).join('')}</div>` : '<p class="muted">Todas as fotos principais já parecem ser a frente.</p>'}
+    </div>`;
+  painel.querySelector('#detFechar')!.addEventListener('click', () => (painel.innerHTML = ''));
+  painel.querySelectorAll<HTMLInputElement>('[data-prop]').forEach((c) =>
+    c.addEventListener('change', () => (propostas[Number(c.dataset.prop)]!.aplicar = c.checked)),
+  );
+  painel.querySelector<HTMLButtonElement>('#detAplicar')!.addEventListener('click', async (e) => {
+    const b = e.currentTarget as HTMLButtonElement;
+    const sel = propostas.filter((x) => x.aplicar && x.indice > 0);
+    if (!sel.length) return;
+    b.disabled = true;
+    let ok = 0;
+    for (const x of sel) {
+      b.textContent = `A aplicar ${ok + 1}/${sel.length}…`;
+      try {
+        const images = [x.p.images[x.indice]!, ...x.p.images.filter((_, i) => i !== x.indice)];
+        let thumb = '';
+        try {
+          thumb = await criarMiniatura(images[0]!, x.p.id);
+        } catch (err) {
+          console.error(err);
+        }
+        await updateDoc(doc(db, 'products', x.p.id), { images, thumb, updatedAt: serverTimestamp() });
+        if (x.p.thumb) void deleteByUrl(x.p.thumb);
+        x.p.images = images;
+        x.p.thumb = thumb;
+        ok++;
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    toast(`${ok} de ${sel.length} fotos principais atualizadas.`, ok === sel.length ? 'ok' : 'err');
+    agendarPublicacao();
+    painel.innerHTML = '';
+    drawProducts();
   });
 }
 

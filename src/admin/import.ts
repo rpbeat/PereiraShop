@@ -4,6 +4,7 @@ import { uploadImage } from '../lib/storage';
 import { SIZES_ADULT, SIZES_KIDS, type Patch, type Product } from '../lib/types';
 import { esc, toast } from '../lib/ui';
 import { caminhoDe, caminhoTexto, interpretar } from '../lib/nomes';
+import { detetarPrincipal, prepararDetetor } from '../lib/fotoPrincipal';
 
 /**
  * Importação em lote a partir de uma pasta local.
@@ -31,6 +32,7 @@ interface Draft {
   include: boolean;
   exists: boolean;
   status: '' | 'a enviar' | 'feito' | 'erro';
+  frente: '' | 'a analisar' | 'detetada' | 'rever' | 'manual'; // deteção da foto principal
 }
 
 export interface ImportContext {
@@ -48,6 +50,9 @@ let importing = false;
 let maxImages = 8;
 let usarInterpretacao = true;
 let usarTamanhosTitulo = true;
+let detetarFrente = true;
+let detecaoId = 0; // muda quando se escolhe outra pasta (cancela a deteção em curso)
+let detetando = false;
 
 /** Preenche título, categoria e tamanhos de um rascunho (interpretados ou tal como estão nas pastas). */
 function preencher(d: Pick<Draft, 'title' | 'path' | 'source' | 'catPath' | 'sizes'>): void {
@@ -114,6 +119,7 @@ function buildDrafts(files: File[], existing: Product[]): Draft[] {
         include: !exists,
         exists,
         status: '',
+        frente: '',
       };
     });
 }
@@ -144,6 +150,7 @@ export function renderImport(ctx: ImportContext): void {
         <div class="row">
           <label class="check"><input type="checkbox" name="interpretar" ${usarInterpretacao ? 'checked' : ''}> Traduzir nomes e deduzir categorias</label>
           <label class="check"><input type="checkbox" name="tamTitulo" ${usarTamanhosTitulo ? 'checked' : ''}> Usar os tamanhos indicados no título (ex.: S-4XL, 16-28)</label>
+          <label class="check"><input type="checkbox" name="frente" ${detetarFrente ? 'checked' : ''}> Detetar a foto principal (frente da camisola)</label>
         </div>
         <datalist id="impCats">${[...new Set(ctx.products().flatMap((p) => p.categoryPath.map((_, i) => caminhoTexto(p.categoryPath.slice(0, i + 1)))))]
           .sort((a, b) => a.localeCompare(b, 'pt'))
@@ -202,6 +209,76 @@ export function renderImport(ctx: ImportContext): void {
     input.value = '';
     if (!drafts.length) toast('Não encontrei imagens nessa pasta.', 'err');
     draw();
+    if (detetarFrente) void detetarTodas();
+  });
+
+  form.querySelector<HTMLInputElement>('input[name="frente"]')!.addEventListener('change', (e) => {
+    detetarFrente = (e.target as HTMLInputElement).checked;
+    if (detetarFrente) void detetarTodas();
+    else detecaoId++;
+  });
+
+  /** Escolhe a frente de cada artigo (por ordem) e passa-a para primeira foto. */
+  async function detetarTodas(): Promise<void> {
+    const meu = ++detecaoId;
+    const alvo = drafts.filter((d) => d.files.length > 1 && d.status !== 'feito' && !d.frente);
+    if (!alvo.length) return;
+    detetando = true;
+    const estado = (t: string): void => {
+      const el = list.querySelector('.det-estado');
+      if (el) el.textContent = t;
+    };
+    try {
+      estado('A preparar o detetor de fotos (na 1.ª vez descarrega ~90 MB)…');
+      await prepararDetetor((pct) => estado(`A descarregar o detetor de fotos: ${pct}%`));
+      let k = 0;
+      for (const d of alvo) {
+        if (meu !== detecaoId) return;
+        k++;
+        estado(`A detetar a frente: ${k}/${alvo.length}`);
+        d.frente = 'a analisar';
+        redesenharCartao(d);
+        const r = await detetarPrincipal(d.files.map(thumb));
+        if (meu !== detecaoId) return;
+        if (d.frente !== 'a analisar') continue; // o utilizador escolheu à mão entretanto
+        if (r.indice > 0) tornarPrincipal(d, r.indice);
+        d.frente = r.indice < 0 || !r.seguro ? 'rever' : 'detetada';
+        redesenharCartao(d);
+      }
+      const rever = drafts.filter((d) => d.frente === 'rever').length;
+      estado(rever ? `Frente detetada. ${rever} a rever (marcados a amarelo): duplo clique na foto certa.` : 'Frente detetada em todos os artigos.');
+    } catch (err) {
+      console.error(err);
+      estado('Não foi possível usar o detetor de fotos (sem ligação?). Pode escolher a principal com duplo clique.');
+      drafts.forEach((d) => d.frente === 'a analisar' && (d.frente = ''));
+    } finally {
+      if (meu === detecaoId) detetando = false;
+      drawSummary();
+    }
+  }
+
+  function tornarPrincipal(d: Draft, i: number): void {
+    const [f] = d.files.splice(i, 1);
+    d.selected.splice(i, 1);
+    d.files.unshift(f!);
+    d.selected.unshift(true);
+  }
+
+  function redesenharCartao(d: Draft): void {
+    const el = list.querySelector(`.draft[data-k="${d.key}"]`);
+    if (el) el.outerHTML = draftCard(d);
+  }
+
+  // duplo clique numa foto: passa a ser a principal
+  list.addEventListener('dblclick', (e) => {
+    const t = (e.target as HTMLElement).closest<HTMLElement>('[data-img]');
+    const d = drafts.find((x) => x.key === t?.closest<HTMLElement>('[data-k]')?.dataset.k);
+    if (!t || !d || importing) return;
+    const i = Number(t.dataset.img);
+    if (i > 0) tornarPrincipal(d, i);
+    d.selected[0] = true;
+    d.frente = 'manual';
+    redesenharCartao(d);
   });
 
   // Edição dos rascunhos (delegação)
@@ -246,7 +323,7 @@ export function renderImport(ctx: ImportContext): void {
     const bar = list.querySelector('.import-bar');
     if (!bar) return;
     bar.querySelector('.n')!.textContent = String(n);
-    (bar.querySelector('[data-run]') as HTMLButtonElement).disabled = importing || n === 0;
+    (bar.querySelector('[data-run]') as HTMLButtonElement).disabled = importing || detetando || n === 0;
   }
 
   function draw(): void {
@@ -259,6 +336,7 @@ export function renderImport(ctx: ImportContext): void {
       <div class="card import-bar">
         <label class="check"><input type="checkbox" id="allDrafts" ${drafts.every((d) => d.include) ? 'checked' : ''}> Todos</label>
         <span><b class="n"></b> de ${drafts.length} artigos selecionados${dup ? ` · ${dup} já existem (desmarcados)` : ''}</span>
+        <span class="muted small det-estado"></span>
         <button class="btn primary" type="button" data-run>Importar</button>
       </div>
       <div class="drafts">${drafts.map(draftCard).join('')}</div>`;
@@ -268,21 +346,22 @@ export function renderImport(ctx: ImportContext): void {
   function draftCard(d: Draft): string {
     const sel = d.selected.filter(Boolean).length;
     return `
-      <article class="card draft ${d.include ? '' : 'skip'} ${d.status ? `st-${d.status.replace(' ', '-')}` : ''}" data-k="${d.key}">
+      <article class="card draft ${d.include ? '' : 'skip'} ${d.status ? `st-${d.status.replace(' ', '-')}` : ''} ${d.frente === 'rever' ? 'rever' : ''}" data-k="${d.key}">
         <div class="draft-head">
           <label class="check"><input type="checkbox" name="include" ${d.include ? 'checked' : ''} ${d.status === 'feito' ? 'disabled' : ''}></label>
           <input name="title" value="${esc(d.title)}" aria-label="Título" ${importing ? 'disabled' : ''}>
           <input name="path" value="${esc(d.path)}" list="impCats" placeholder="Liga › Clube › Tipo" aria-label="Categoria" ${importing ? 'disabled' : ''}>
           <span class="muted small img-count">${sel}/${d.files.length} imagens</span>
           ${d.exists ? '<span class="tag">Já existe</span>' : ''}
+          ${{ '': '', 'a analisar': '<span class="tag">A detetar a frente…</span>', detetada: '<span class="tag ok">Frente detetada</span>', rever: '<span class="tag warn">Confirmar a frente</span>', manual: '<span class="tag ok">Frente escolhida</span>' }[d.frente]}
           ${d.status ? `<span class="tag ${d.status === 'feito' ? 'ok' : ''}">${d.status}</span>` : ''}
         </div>
         <div class="draft-imgs">${d.files
-          .map((f, i) => `<button type="button" class="dimg ${d.selected[i] ? '' : 'off'}" data-img="${i}" title="${esc(f.name)}"><img loading="lazy" src="${thumb(f)}" alt=""></button>`)
+          .map((f, i) => `<button type="button" class="dimg ${d.selected[i] ? '' : 'off'} ${i === 0 ? 'principal' : ''}" data-img="${i}" title="${esc(f.name)} (duplo clique: tornar principal)"><img loading="lazy" src="${thumb(f)}" alt=""></button>`)
           .join('')}</div>
         <p class="muted small">Original: <b>${esc(d.source)}</b>${
           usarTamanhosTitulo && d.sizes.length ? ` · Tamanhos: <b>${esc(d.sizes[0])}–${esc(d.sizes[d.sizes.length - 1])}</b>` : ''
-        } · clique numa imagem para a incluir/excluir; a primeira selecionada fica como principal.</p>
+        } · clique numa foto para a incluir/excluir; duplo clique para a tornar principal.</p>
       </article>`;
   }
 
