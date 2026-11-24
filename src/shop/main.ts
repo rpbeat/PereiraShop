@@ -15,7 +15,7 @@ import { epocaDe, ordemEpocas } from '../lib/nomes';
 import { logoHtml } from '../lib/logo';
 import { auth, db, SHOP_NAME } from '../lib/firebase';
 import {
-  STATUS_LABELS,
+  STATUS_LABELS_CLIENTE,
   emptyCustomer,
   toCustomer,
   toOrder,
@@ -768,7 +768,7 @@ async function renderOrders(): Promise<void> {
               <header class="order-head">
                 <b>#${orderCode(o.id)}</b>
                 <span class="muted">${fmtDate(o.createdAt)}</span>
-                <span class="status s-${o.status}">${STATUS_LABELS[o.status]}</span>
+                <span class="status s-${o.status}">${STATUS_LABELS_CLIENTE[o.status]}</span>
               </header>
               ${o.items
                 .map(

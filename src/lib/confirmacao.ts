@@ -1,10 +1,11 @@
 /**
  * Imagem de confirmação da encomenda (para enviar ao cliente pelo WhatsApp).
  * Desenhada em canvas: cabeçalho com o logótipo, número e estado, todos os artigos com foto
- * e personalização, morada de entrega e uma mensagem de acordo com o estado da encomenda.
+ * e personalização, notas e uma mensagem de acordo com o estado da encomenda.
+ * O fundo é sempre branco (uma imagem transparente aparece preta no WhatsApp em modo escuro).
  */
 import { LOGO_ICON } from './logo';
-import { STATUS_LABELS, type Order, type OrderStatus } from './types';
+import { STATUS_LABELS_CLIENTE, type Order, type OrderStatus } from './types';
 import { orderCode } from './ui';
 
 const COR = {
@@ -21,7 +22,7 @@ const DISPLAY = '"Big Shoulders Display", "Arial Narrow", Arial, sans-serif';
 const SANS = '"Hanken Grotesk", "Segoe UI", Arial, sans-serif';
 
 const MENSAGEM: Record<OrderStatus, string> = {
-  pendente: 'Recebemos a tua encomenda. Falamos contigo com os dados de pagamento.',
+  pendente: 'Recebemos a tua encomenda e está em análise. Falamos contigo com os dados de pagamento.',
   paga: 'Pagamento recebido. Já estamos a tratar da tua encomenda.',
   encomendada: 'A tua encomenda já foi pedida. Avisamos quando seguir para ti.',
   enviada: 'A tua encomenda já está a caminho.',
@@ -110,7 +111,6 @@ export async function imagemConfirmacao(o: Order, nomeLoja: string): Promise<Blo
   const medir = document.createElement('canvas').getContext('2d')!;
 
   // ---- calcular as alturas antes de desenhar
-  const c = o.customer;
   const linhasItem = o.items.map((i) => {
     medir.font = `700 38px ${SANS}`;
     const titulo = partir(medir, i.title, W - M * 2 - FOTO - 36, 2);
@@ -122,7 +122,6 @@ export async function imagemConfirmacao(o: Order, nomeLoja: string): Promise<Blo
     const h = Math.max(FOTO, titulo.length * 46 + 12 + det.length * 40);
     return { titulo, det, h };
   });
-  const morada = [c.name, c.address, [c.postalCode, c.city].filter(Boolean).join(' '), c.phone].filter(Boolean);
   medir.font = `400 32px ${SANS}`;
   const notas = o.notes ? partir(medir, o.notes, W - M * 2, 4) : [];
   medir.font = `400 34px ${SANS}`;
@@ -131,15 +130,18 @@ export async function imagemConfirmacao(o: Order, nomeLoja: string): Promise<Blo
   const HEAD = 250;
   const INTRO = 210;
   const ITENS = linhasItem.reduce((s, l) => s + l.h + 48, 0) + 70;
-  const ENTREGA = 90 + morada.length * 44 + (notas.length ? 70 + notas.length * 42 : 0);
+  const NOTAS = notas.length ? 100 + notas.length * 42 : 0;
   const FIM = 80 + msg.length * 46 + 70;
-  const H = HEAD + INTRO + ITENS + ENTREGA + FIM;
+  const H = HEAD + INTRO + ITENS + NOTAS + FIM;
 
   const cv = document.createElement('canvas');
   cv.width = W;
   cv.height = H;
   const ctx = cv.getContext('2d')!;
   ctx.textBaseline = 'alphabetic';
+  // fundo branco sempre (sem transparência)
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, W, H);
 
   // ---- cabeçalho
   ctx.fillStyle = COR.relvado;
@@ -159,7 +161,7 @@ export async function imagemConfirmacao(o: Order, nomeLoja: string): Promise<Blo
   ctx.fillStyle = COR.tinta;
   ctx.font = `900 76px ${DISPLAY}`;
   ctx.fillText(`#${orderCode(o.id)}`, M, y);
-  const estado = STATUS_LABELS[o.status];
+  const estado = STATUS_LABELS_CLIENTE[o.status];
   ctx.font = `700 30px ${SANS}`;
   const ew = ctx.measureText(estado).width + 44;
   retangulo(ctx, W - M - ew, y - 50, ew, 56, 28);
@@ -218,21 +220,11 @@ export async function imagemConfirmacao(o: Order, nomeLoja: string): Promise<Blo
   });
   y += 50;
 
-  // ---- entrega
-  ctx.fillStyle = COR.linha;
-  ctx.fillRect(M, y - 40, W - M * 2, 2);
-  ctx.fillStyle = COR.tinta;
-  ctx.font = `800 44px ${DISPLAY}`;
-  ctx.fillText('Entrega', M, y + 14);
-  y += 66;
-  ctx.font = `400 32px ${SANS}`;
-  morada.forEach((m, j) => {
-    ctx.fillStyle = j === 0 ? COR.tinta : COR.cinza;
-    ctx.fillText(m, M, y, W - M * 2);
-    y += 44;
-  });
+  // ---- notas (se houver)
   if (notas.length) {
-    y += 26;
+    ctx.fillStyle = COR.linha;
+    ctx.fillRect(M, y - 40, W - M * 2, 2);
+    y += 14;
     ctx.fillStyle = COR.tinta;
     ctx.font = `800 36px ${DISPLAY}`;
     ctx.fillText('Notas', M, y);

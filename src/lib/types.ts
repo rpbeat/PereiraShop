@@ -62,6 +62,9 @@ export const STATUS_LABELS: Record<OrderStatus, string> = {
   cancelada: 'Cancelada',
 };
 
+/** Como o cliente vê o estado (na loja e na confirmação): "pendente" aparece como "Em análise". */
+export const STATUS_LABELS_CLIENTE: Record<OrderStatus, string> = { ...STATUS_LABELS, pendente: 'Em análise' };
+
 export interface Customer {
   name: string;
   phone: string;
