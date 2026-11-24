@@ -12,6 +12,7 @@ import {
 import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
 import { carregarCatalogo, type ItemIndice } from '../lib/catalogo';
 import { epocaDe, ordemEpocas } from '../lib/nomes';
+import { fmtEur } from '../lib/precos';
 import { logoHtml } from '../lib/logo';
 import { auth, db, SHOP_NAME } from '../lib/firebase';
 import {
@@ -788,12 +789,14 @@ async function renderOrders(): Promise<void> {
                 <span class="muted">${fmtDate(o.createdAt)}</span>
                 <span class="status s-${o.status}">${STATUS_LABELS_CLIENTE[o.status]}</span>
               </header>
+              ${o.total != null ? `<p class="order-total-line">Total: <b>${fmtEur(o.total)}</b>${o.extra ? ` <span class="muted small">(inclui ${o.extra < 0 ? 'desconto' : 'portes/outros'} de ${fmtEur(Math.abs(o.extra))})</span>` : ''}</p>` : ''}
               ${o.items
                 .map(
                   (i) => `
                   <div class="line">
                     ${i.imageUrl ? `<img src="${esc(i.imageUrl)}" alt="">` : '<div class="ph"></div>'}
                     <div class="grow"><b>${esc(i.title)}</b>${itemDetails(i)}</div>
+                    ${o.total != null && typeof i.price === 'number' ? `<span class="line-price">${i.qty > 1 ? `${i.qty} × ` : ''}${fmtEur(i.price)}</span>` : ''}
                   </div>`,
                 )
                 .join('')}

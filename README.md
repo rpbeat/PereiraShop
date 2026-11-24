@@ -92,8 +92,9 @@ A cópia de imagens funciona no Chrome/Edge em computador e precisa do CORS do S
 | `users/{uid}` | perfil do cliente |
 | `admins/{uid}` | contas com acesso ao backoffice |
 | `bloqueados/{uid}` | contas bloqueadas no backoffice (*Contas*): deixam de ver o catálogo e de encomendar |
+| `config/precos` | preços base da calculadora (`semPers`, `comPers`), editáveis em *Encomendas → Preços base* |
 
-Cada linha de `items` guarda `title, imageUrl, size, name, number, patches[] (nomes), qty, notes, supplierSent`. É uma cópia, por isso alterar ou apagar um artigo não altera as encomendas antigas.
+Cada linha de `items` guarda `title, imageUrl, size, name, number, patches[] (nomes), qty, notes, supplierSent` e, depois de definido o preço, `price` (unitário). A encomenda guarda também `extra` (portes/ajuste) e `total` (`null` enquanto não houver preço). É uma cópia, por isso alterar ou apagar um artigo não altera as encomendas antigas.
 
 ## Decisões a rever
 

@@ -1,5 +1,6 @@
 import type { Order, OrderItem } from './types';
 import { orderCode } from './ui';
+import { fmtEur } from './precos';
 
 /**
  * Texto para o fornecedor, no formato usado no WhatsApp:
@@ -24,9 +25,14 @@ export function orderSummary(o: Order): string {
   o.items.forEach((i, k) => {
     lines.push(`${k + 1}) ${i.title}`, itemMessage(i));
     if (i.notes) lines.push(`Obs.: ${i.notes}`);
+    if (o.total != null && typeof i.price === 'number') lines.push(`Preço: ${i.qty > 1 ? `${i.qty} × ` : ''}${fmtEur(i.price)}`);
     lines.push('');
   });
   if (o.notes) lines.push(`Notas: ${o.notes}`);
+  if (o.total != null) {
+    if (o.extra) lines.push(`${o.extra < 0 ? 'Desconto' : 'Portes / outros'}: ${fmtEur(o.extra)}`);
+    lines.push(`TOTAL: ${fmtEur(o.total)}`);
+  }
   return lines.join('\n').trim();
 }
 

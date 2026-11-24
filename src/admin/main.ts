@@ -24,6 +24,8 @@ import { detetarPrincipal, prepararDetetor } from '../lib/fotoPrincipal';
 import { copiarConfirmacao, partilharConfirmacao } from '../lib/confirmacao';
 import { renderImport } from './import';
 import { renderContas } from './contas';
+import { calculadoraHtml, carregarPrecosBase, ligarCalculadora, ligarPrecosBase, precosBaseHtml } from './calculadora';
+import { fmtEur, temPreco } from '../lib/precos';
 import { caminhoDe, caminhoTexto, interpretar } from '../lib/nomes';
 import {
   SIZES_ADULT,
@@ -96,7 +98,7 @@ onAuthStateChanged(auth, async (u) => {
   }
 
   try {
-    await Promise.all([loadProducts(), loadPatches()]);
+    await Promise.all([loadProducts(), loadPatches(), carregarPrecosBase()]);
     dadosProntos = true; // só publica o índice com artigos E patches carregados
     agendarPublicacao();
   } catch (err) {
@@ -418,8 +420,10 @@ function renderOrders(): void {
       <div class="chips">${filters
         .map(([k, l]) => `<button class="chip ${orderFilter === k ? 'on' : ''}" data-filter="${k}">${l} <span class="count">${count(k)}</span></button>`)
         .join('')}</div>
+      ${precosBaseHtml()}
       <div id="olist" class="orders"></div>
     </section>`;
+  ligarPrecosBase(app, renderOrders);
   app.querySelectorAll<HTMLButtonElement>('[data-filter]').forEach((b) =>
     b.addEventListener('click', () => {
       orderFilter = b.dataset.filter as OrderFilter;
@@ -458,6 +462,7 @@ function orderCard(o: Order): string {
       <header class="order-head">
         <b>#${orderCode(o.id)}</b>
         <span class="muted">${fmtDate(o.createdAt)}</span>
+        ${temPreco(o) ? `<span class="order-total">${fmtEur(o.total!)}</span>` : ''}
         <select data-status="${o.id}" class="status-select s-${o.status}" aria-label="Estado">
           ${STATUSES.map((s) => `<option value="${s}" ${s === o.status ? 'selected' : ''}>${STATUS_LABELS[s]}</option>`).join('')}
         </select>
@@ -470,6 +475,7 @@ function orderCard(o: Order): string {
       </div>
       ${o.notes ? `<p class="note">${esc(o.notes)}</p>` : ''}
       <div class="oitems">${o.items.map((i, idx) => itemBlock(o, i, idx)).join('')}</div>
+      ${calculadoraHtml(o)}
       <footer class="order-foot">
         <button class="btn ghost small" data-summary="${o.id}">Copiar resumo (texto)</button>
         ${PARTILHA ? `<button class="btn small" data-conf="partilhar" data-o="${o.id}">Partilhar confirmação…</button>` : ''}
@@ -488,6 +494,8 @@ function redesenharVista(): void {
   if (view === 'encomendas') drawOrders();
   else if (view === 'fila') renderQueue();
 }
+
+ligarCalculadora(app, () => orders, redesenharVista);
 
 function editorItem(o: Order, idx: number, showOrder: boolean): string {
   const v = edicao!.v;

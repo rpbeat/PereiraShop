@@ -7,6 +7,7 @@
 import { LOGO_ICON } from './logo';
 import { STATUS_LABELS_CLIENTE, type Order, type OrderStatus } from './types';
 import { orderCode } from './ui';
+import { fmtEur } from './precos';
 
 const COR = {
   relvado: '#0f3d2e',
@@ -110,6 +111,8 @@ export async function imagemConfirmacao(o: Order, nomeLoja: string): Promise<Blo
   const FOTO = 200;
   const medir = document.createElement('canvas').getContext('2d')!;
 
+  const comPreco = o.total != null;
+
   // ---- calcular as alturas antes de desenhar
   const linhasItem = o.items.map((i) => {
     medir.font = `700 38px ${SANS}`;
@@ -119,20 +122,24 @@ export async function imagemConfirmacao(o: Order, nomeLoja: string): Promise<Blo
     if (i.patches.length) det.push(`Patches: ${i.patches.join(', ')}`);
     if (i.qty > 1) det.push(`Quantidade: ${i.qty}`);
     if (i.notes) det.push(`Obs.: ${i.notes}`);
+    const preco = comPreco && typeof i.price === 'number' ? (i.qty > 1 ? `${i.qty} × ${fmtEur(i.price)} = ${fmtEur(i.price * i.qty)}` : fmtEur(i.price)) : '';
+    if (preco) det.push(preco);
     const h = Math.max(FOTO, titulo.length * 46 + 12 + det.length * 40);
-    return { titulo, det, h };
+    return { titulo, det, h, temPreco: !!preco };
   });
   medir.font = `400 32px ${SANS}`;
   const notas = o.notes ? partir(medir, o.notes, W - M * 2, 4) : [];
   medir.font = `400 34px ${SANS}`;
-  const msg = partir(medir, MENSAGEM[o.status], W - M * 2, 3);
+  const texto = comPreco && o.status === 'pendente' ? 'Este é o total da tua encomenda. Falamos contigo com os dados de pagamento.' : MENSAGEM[o.status];
+  const msg = partir(medir, texto, W - M * 2, 3);
 
   const HEAD = 250;
   const INTRO = 210;
   const ITENS = linhasItem.reduce((s, l) => s + l.h + 48, 0) + 70;
   const NOTAS = notas.length ? 100 + notas.length * 42 : 0;
+  const TOTAIS = comPreco ? 130 + (o.extra ? 52 : 0) : 0;
   const FIM = 80 + msg.length * 46 + 70;
-  const H = HEAD + INTRO + ITENS + NOTAS + FIM;
+  const H = HEAD + INTRO + ITENS + TOTAIS + NOTAS + FIM;
 
   const cv = document.createElement('canvas');
   cv.width = W;
@@ -205,10 +212,11 @@ export async function imagemConfirmacao(o: Order, nomeLoja: string): Promise<Blo
     ty += 8;
     ctx.font = `400 31px ${SANS}`;
     l.det.forEach((d, j) => {
-      ctx.fillStyle = j === 0 ? COR.campo : COR.cinza;
-      if (j === 0) ctx.font = `700 31px ${SANS}`;
+      const destaque = j === 0 || (l.temPreco && j === l.det.length - 1);
+      ctx.fillStyle = j === 0 ? COR.campo : destaque ? COR.tinta : COR.cinza;
+      if (destaque) ctx.font = `700 31px ${SANS}`;
       ctx.fillText(d, tx, ty, W - tx - M);
-      if (j === 0) ctx.font = `400 31px ${SANS}`;
+      if (destaque) ctx.font = `400 31px ${SANS}`;
       ty += 40;
     });
     y += l.h + 24;
@@ -219,6 +227,31 @@ export async function imagemConfirmacao(o: Order, nomeLoja: string): Promise<Blo
     y += 24;
   });
   y += 50;
+
+  // ---- totais (se o preço já foi definido)
+  if (comPreco) {
+    ctx.fillStyle = COR.linha;
+    ctx.fillRect(M, y - 40, W - M * 2, 2);
+    ctx.textAlign = 'right';
+    if (o.extra) {
+      ctx.font = `400 32px ${SANS}`;
+      ctx.fillStyle = COR.cinza;
+      ctx.textAlign = 'left';
+      ctx.fillText(o.extra < 0 ? 'Desconto' : 'Portes / outros', M, y + 4);
+      ctx.textAlign = 'right';
+      ctx.fillText(fmtEur(o.extra), W - M, y + 4);
+      y += 52;
+    }
+    ctx.textAlign = 'left';
+    ctx.fillStyle = COR.tinta;
+    ctx.font = `900 56px ${DISPLAY}`;
+    ctx.fillText('Total', M, y + 30);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = COR.campo;
+    ctx.fillText(fmtEur(o.total!), W - M, y + 30);
+    ctx.textAlign = 'left';
+    y += 130;
+  }
 
   // ---- notas (se houver)
   if (notas.length) {

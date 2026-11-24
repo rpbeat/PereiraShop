@@ -497,3 +497,41 @@ input.upper { text-transform: uppercase; letter-spacing: 0.04em; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
+
+/* ---------- admin: calculadora de preço ---------- */
+.order-total { font-weight: 700; color: var(--campo); margin-left: auto; margin-right: 8px; }
+.calc { border: 1px solid var(--line); border-radius: 12px; background: var(--folha-2); margin-top: 12px; }
+.calc > summary { cursor: pointer; padding: 10px 14px; display: flex; align-items: center; gap: 10px; list-style: none; }
+.calc > summary::-webkit-details-marker { display: none; }
+.calc > summary::before { content: '▸'; color: var(--muted); transition: transform 0.15s; }
+.calc[open] > summary::before { transform: rotate(90deg); }
+.calc > summary > span:first-of-type { font-weight: 600; }
+.calc-body { padding: 0 14px 14px; display: grid; gap: 10px; }
+.calc-tab { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.calc-tab td { padding: 8px 6px; border-top: 1px solid var(--line); vertical-align: middle; }
+.calc-art .small, .calc-extra .small { display: block; margin-top: 2px; }
+.calc-art b { font-weight: 600; }
+.calc-qtd { white-space: nowrap; color: var(--muted); text-align: right; width: 1%; }
+.calc-preco { width: 1%; white-space: nowrap; }
+.calc-sub, .calc-total { text-align: right; white-space: nowrap; width: 1%; padding-left: 16px !important; }
+.calc-tab tfoot td { border-top: 2px solid var(--line-strong); font-weight: 700; font-size: 1.1rem; }
+.calc-total { color: var(--campo); }
+.eur-in { position: relative; display: inline-flex; align-items: center; }
+.eur-in input { width: 92px; padding: 6px 24px 6px 8px; text-align: right; }
+.eur-in i { position: absolute; right: 8px; font-style: normal; color: var(--muted); pointer-events: none; }
+.eur-in input.invalido { border-color: var(--danger); background: #fbf0ee; }
+.calc-rapido { display: inline-flex; gap: 8px; margin-left: 8px; }
+button.link { background: none; border: 0; padding: 0; color: var(--campo); text-decoration: underline; cursor: pointer; font: inherit; font-size: 0.82rem; }
+.precos-base { margin: 4px 0 14px; padding: 10px 14px; }
+.precos-base > summary { cursor: pointer; }
+.precos-base-form { display: flex; flex-wrap: wrap; align-items: end; gap: 14px; margin-top: 12px; }
+.precos-base-form label { display: grid; gap: 4px; font-size: 0.85rem; font-weight: 600; }
+.precos-base-form p { flex-basis: 100%; margin: 0; }
+@media (max-width: 640px) {
+  .calc-rapido { display: flex; margin: 4px 0 0; }
+  .calc-tab td { padding: 6px 3px; }
+}
+
+/* ---------- loja: preço nas encomendas ---------- */
+.order-total-line { margin: 4px 0 8px; }
+.line-price { white-space: nowrap; font-weight: 600; font-variant-numeric: tabular-nums; }

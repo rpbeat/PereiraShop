@@ -43,6 +43,8 @@ export interface OrderItem {
   qty: number;
   notes: string;
   supplierSent: boolean;
+  /** Preço unitário definido no backoffice (só conta quando a encomenda tem total). */
+  price?: number | null;
 }
 
 export interface CartItem extends OrderItem {
@@ -82,6 +84,10 @@ export interface Order {
   notes: string;
   status: OrderStatus;
   createdAt: Timestamp | null;
+  /** Portes ou ajuste (negativo = desconto), definido no backoffice. */
+  extra: number;
+  /** Total definido no backoffice; null enquanto o preço não foi definido. */
+  total: number | null;
 }
 
 export const SIZES_ADULT = ['S', 'M', 'L', 'XL', 'XXL', '3XL', '4XL'];
@@ -145,6 +151,7 @@ export function toOrderItem(d: DocumentData): OrderItem {
     qty: typeof d.qty === 'number' && d.qty > 0 ? d.qty : 1,
     notes: str(d.notes),
     supplierSent: d.supplierSent === true,
+    price: typeof d.price === 'number' ? d.price : null,
   };
 }
 
@@ -159,5 +166,7 @@ export function toOrder(id: string, d: DocumentData): Order {
     notes: str(d.notes),
     status,
     createdAt: d.createdAt ?? null,
+    extra: typeof d.extra === 'number' ? d.extra : 0,
+    total: typeof d.total === 'number' ? d.total : null,
   };
 }

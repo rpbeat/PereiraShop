@@ -23,6 +23,11 @@ service cloud.firestore {
       return signedIn() && !blocked();
     }
 
+    // Definições do backoffice (ex.: preços base)
+    match /config/{id} {
+      allow read, write: if isAdmin();
+    }
+
     match /bloqueados/{uid} {
       allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
       allow write: if isAdmin();
