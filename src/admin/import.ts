@@ -31,7 +31,7 @@ interface Draft {
   selected: boolean[];
   include: boolean;
   exists: boolean;
-  status: '' | 'a enviar' | 'feito' | 'erro';
+  status: '' | 'a detetar' | 'a enviar' | 'feito' | 'erro';
   frente: '' | 'a analisar' | 'detetada' | 'rever' | 'manual'; // deteção da foto principal
 }
 
@@ -52,7 +52,6 @@ let usarInterpretacao = true;
 let usarTamanhosTitulo = true;
 let detetarFrente = true;
 let detecaoId = 0; // muda quando se escolhe outra pasta (cancela a deteção em curso)
-let detetando = false;
 
 /** Preenche título, categoria e tamanhos de um rascunho (interpretados ou tal como estão nas pastas). */
 function preencher(d: Pick<Draft, 'title' | 'path' | 'source' | 'catPath' | 'sizes'>): void {
@@ -223,7 +222,6 @@ export function renderImport(ctx: ImportContext): void {
     const meu = ++detecaoId;
     const alvo = drafts.filter((d) => d.files.length > 1 && d.status !== 'feito' && !d.frente);
     if (!alvo.length) return;
-    detetando = true;
     const estado = (t: string): void => {
       const el = list.querySelector('.det-estado');
       if (el) el.textContent = t;
@@ -252,7 +250,6 @@ export function renderImport(ctx: ImportContext): void {
       estado('Não foi possível usar o detetor de fotos (sem ligação?). Pode escolher a principal com duplo clique.');
       drafts.forEach((d) => d.frente === 'a analisar' && (d.frente = ''));
     } finally {
-      if (meu === detecaoId) detetando = false;
       drawSummary();
     }
   }
@@ -323,7 +320,7 @@ export function renderImport(ctx: ImportContext): void {
     const bar = list.querySelector('.import-bar');
     if (!bar) return;
     bar.querySelector('.n')!.textContent = String(n);
-    (bar.querySelector('[data-run]') as HTMLButtonElement).disabled = importing || detetando || n === 0;
+    (bar.querySelector('[data-run]') as HTMLButtonElement).disabled = importing || n === 0;
   }
 
   function draw(): void {
@@ -381,11 +378,30 @@ export function renderImport(ctx: ImportContext): void {
     };
 
     importing = true;
+    // a importação trata da deteção que faltar: pára a deteção em segundo plano para não correrem as duas
+    detecaoId++;
     const leave = (e: BeforeUnloadEvent): void => e.preventDefault();
     window.addEventListener('beforeunload', leave);
     draw();
     let ok = 0;
+    let detetorFalhou = false;
     for (const d of todo) {
+      // garante que cada artigo passa pelo detetor da frente antes de enviar as fotos
+      if (detetarFrente && !detetorFalhou && d.files.length > 1 && (d.frente === '' || d.frente === 'a analisar')) {
+        d.status = 'a detetar';
+        d.frente = 'a analisar';
+        draw();
+        try {
+          const r = await detetarPrincipal(d.files.map(thumb));
+          if (r.indice > 0) tornarPrincipal(d, r.indice);
+          d.frente = r.indice < 0 || !r.seguro ? 'rever' : 'detetada';
+        } catch (err) {
+          console.error(err);
+          detetorFalhou = true;
+          d.frente = '';
+          toast('Detetor de fotos indisponível: os restantes artigos seguem com a ordem original das fotos.', 'err');
+        }
+      }
       const files = d.files.filter((_, i) => d.selected[i]);
       if (!files.length || !d.title.trim()) {
         d.status = 'erro';
