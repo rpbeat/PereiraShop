@@ -23,6 +23,7 @@ import { publicarIndice } from '../lib/catalogo';
 import { detetarPrincipal, prepararDetetor } from '../lib/fotoPrincipal';
 import { copiarConfirmacao, partilharConfirmacao } from '../lib/confirmacao';
 import { renderImport } from './import';
+import { renderContas } from './contas';
 import { caminhoDe, caminhoTexto, interpretar } from '../lib/nomes';
 import {
   SIZES_ADULT,
@@ -193,6 +194,7 @@ function renderNav(): void {
     <a href="#/artigos">Artigos</a>
     <a href="#/importar">Importar</a>
     <a href="#/patches">Patches</a>
+    <a href="#/contas">Contas</a>
     <a href="#" id="logout">Sair</a>`;
   nav.querySelector('#logout')!.addEventListener('click', (e) => {
     e.preventDefault();
@@ -223,6 +225,17 @@ function route(): void {
       break;
     case 'patches':
       renderPatches(decodeURIComponent(arg));
+      break;
+    case 'contas':
+      renderContas({
+        app,
+        orders: () => orders,
+        verEncomendas: (termo) => {
+          orderSearch = termo;
+          orderFilter = 'todas';
+          location.hash = '#/encomendas';
+        },
+      });
       break;
     case 'importar':
       renderImport({ app, products: () => products, patches: () => patches, reloadProducts: loadProducts });
@@ -465,7 +478,135 @@ function orderCard(o: Order): string {
     </article>`;
 }
 
+/* ---------- edição de um artigo da encomenda ---------- */
+
+/** Artigo em edição (o rascunho fica em memória: a lista pode ser redesenhada por atualizações em tempo real). */
+let edicao: { key: string; v: OrderItem } | null = null;
+const chaveItem = (o: Order, idx: number): string => `${o.id}:${idx}`;
+
+function redesenharVista(): void {
+  if (view === 'encomendas') drawOrders();
+  else if (view === 'fila') renderQueue();
+}
+
+function editorItem(o: Order, idx: number, showOrder: boolean): string {
+  const v = edicao!.v;
+  const prod = products.find((p) => p.id === v.productId);
+  const tamanhos = [...new Set([...(prod?.sizes.length ? prod.sizes : [...SIZES_ADULT, ...SIZES_KIDS]), v.size].filter(Boolean))];
+  const nomesPatch = [...new Set([...patches.filter((p) => p.active || v.patches.includes(p.name)).map((p) => p.name), ...v.patches])];
+  return `
+    <div class="oitem editing" data-edit-key="${chaveItem(o, idx)}">
+      ${v.imageUrl ? `<img src="${esc(v.imageUrl)}" alt="" loading="lazy">` : '<div class="ph"></div>'}
+      <div class="grow item-edit">
+        <div class="oitem-title">
+          ${showOrder ? `<span class="muted">#${orderCode(o.id)} · ${esc(o.customer.name)}</span>` : ''}
+          <b>${esc(v.title)}</b> <span class="tag warn">A editar</span>
+        </div>
+        <div class="edit-grid">
+          <label>Tamanho<select data-f="size">${tamanhos.map((t) => `<option ${t === v.size ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
+          <label>Nome<input data-f="name" value="${esc(v.name)}" maxlength="15" class="upper" autocomplete="off"></label>
+          <label>Número<input data-f="number" value="${esc(v.number)}" inputmode="numeric" maxlength="2" autocomplete="off"></label>
+          <label>Quantidade<input data-f="qty" type="number" min="1" max="20" value="${v.qty}"></label>
+        </div>
+        ${nomesPatch.length ? `<div class="patches-edit">${nomesPatch
+          .map((n) => `<label class="check"><input type="checkbox" data-patch="${esc(n)}" ${v.patches.includes(n) ? 'checked' : ''}> ${esc(n)}</label>`)
+          .join('')}</div>` : ''}
+        <label class="obs">Observações<input data-f="notes" value="${esc(v.notes)}" maxlength="300"></label>
+        <pre class="msg" data-preview>${esc(itemMessage(v))}</pre>
+        <div class="btns">
+          <button class="btn primary small" data-edit-save>Guardar alterações</button>
+          <button class="btn ghost small" data-edit-cancel>Cancelar</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+app.addEventListener('click', async (e) => {
+  const t = e.target as HTMLElement;
+  const abrir = t.closest<HTMLElement>('[data-edit]');
+  if (abrir) {
+    const o = orders.find((x) => x.id === abrir.dataset.o);
+    const idx = Number(abrir.dataset.i);
+    const item = o?.items[idx];
+    if (!o || !item) return;
+    edicao = { key: chaveItem(o, idx), v: { ...item, patches: [...item.patches] } };
+    redesenharVista();
+    app.querySelector<HTMLInputElement>(`[data-edit-key="${edicao.key}"] [data-f="name"]`)?.focus();
+    return;
+  }
+  if (t.closest('[data-edit-cancel]')) {
+    edicao = null;
+    redesenharVista();
+    return;
+  }
+  const guardar = t.closest<HTMLButtonElement>('[data-edit-save]');
+  if (guardar && edicao) {
+    const [oid, si] = edicao.key.split(':');
+    const o = orders.find((x) => x.id === oid);
+    const idx = Number(si);
+    const antigo = o?.items[idx];
+    if (!o || !antigo) return;
+    const v: OrderItem = {
+      ...edicao.v,
+      name: edicao.v.name.trim().toUpperCase(),
+      number: edicao.v.number.replace(/\D/g, '').slice(0, 2),
+      qty: Math.min(20, Math.max(1, Math.round(edicao.v.qty) || 1)),
+      notes: edicao.v.notes.trim(),
+    };
+    const mudou = itemMessage(v) !== itemMessage(antigo) || v.notes !== antigo.notes;
+    if (!mudou) {
+      edicao = null;
+      redesenharVista();
+      return;
+    }
+    if (antigo.supplierSent) {
+      if (!confirm('Este artigo já foi enviado ao fornecedor.\nGuardar a correção e voltar a pô-lo na Fila do fornecedor para reenviar?')) return;
+      v.supplierSent = false;
+    }
+    guardar.disabled = true;
+    try {
+      const items = o.items.map((it, k) => (k === idx ? v : it));
+      await updateDoc(doc(db, 'orders', o.id), { items, updatedAt: serverTimestamp() });
+      edicao = null;
+      toast('Artigo da encomenda corrigido.');
+      redesenharVista();
+    } catch (err) {
+      console.error(err);
+      toast('Não foi possível guardar a correção.', 'err');
+      guardar.disabled = false;
+    }
+  }
+});
+
+// atualiza o rascunho e a pré-visualização da mensagem enquanto se escreve
+app.addEventListener('input', (e) => {
+  const el = e.target as HTMLInputElement;
+  if (!edicao || !el.closest('.item-edit')) return;
+  const f = el.dataset.f as keyof OrderItem | undefined;
+  if (f === 'name') {
+    const pos = el.selectionStart;
+    el.value = el.value.toUpperCase();
+    el.setSelectionRange(pos, pos);
+  }
+  if (f === 'number') el.value = el.value.replace(/\D/g, '').slice(0, 2);
+  if (f === 'qty') edicao.v.qty = Number(el.value) || 1;
+  else if (f === 'size' || f === 'name' || f === 'number' || f === 'notes') edicao.v[f] = el.value;
+  if (el.dataset.patch !== undefined) {
+    const n = el.dataset.patch;
+    edicao.v.patches = el.checked ? [...edicao.v.patches.filter((x) => x !== n), n] : edicao.v.patches.filter((x) => x !== n);
+  }
+  const pre = el.closest('.item-edit')?.querySelector('[data-preview]');
+  if (pre) pre.textContent = itemMessage(edicao.v);
+});
+app.addEventListener('change', (e) => {
+  const el = e.target as HTMLElement;
+  if (edicao && el.closest('.item-edit') && (el.matches('select[data-f]') || el.matches('[data-patch]'))) {
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+});
+
 function itemBlock(o: Order, i: OrderItem, idx: number, showOrder = false): string {
+  if (edicao?.key === chaveItem(o, idx)) return editorItem(o, idx, showOrder);
   const a = `data-o="${o.id}" data-i="${idx}"`;
   return `
     <div class="oitem ${i.supplierSent ? 'sent' : ''}">
@@ -484,6 +625,7 @@ function itemBlock(o: Order, i: OrderItem, idx: number, showOrder = false): stri
           <button class="btn ghost small" data-copy="img" ${a}>Só imagem</button>
           <button class="btn ghost small" data-copy="txt" ${a}>Só texto</button>
           <button class="btn ghost small" data-sent="${o.id}" data-i="${idx}">${i.supplierSent ? 'Desmarcar' : 'Marcar como enviado'}</button>
+          <button class="btn ghost small" data-edit ${a} title="Corrigir tamanho, nome, número, patches ou quantidade">Editar</button>
         </div>
       </div>
     </div>`;

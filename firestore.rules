@@ -13,6 +13,21 @@ service cloud.firestore {
       return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
 
+    // Contas bloqueadas: um documento bloqueados/{uid} (criado no backoffice → Contas).
+    function blocked() {
+      return exists(/databases/$(database)/documents/bloqueados/$(request.auth.uid));
+    }
+
+    // Cliente com sessão iniciada e conta não bloqueada
+    function active() {
+      return signedIn() && !blocked();
+    }
+
+    match /bloqueados/{uid} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
+      allow write: if isAdmin();
+    }
+
     match /admins/{uid} {
       allow read: if signedIn() && request.auth.uid == uid;
       allow write: if false;
@@ -21,34 +36,34 @@ service cloud.firestore {
     // Catálogo: só clientes com sessão iniciada.
     // Para tornar o catálogo público, trocar "signedIn()" por "true" nas duas regras de leitura abaixo.
     match /products/{id} {
-      allow read: if signedIn();
+      allow read: if active() || isAdmin();
       allow write: if isAdmin();
     }
 
     // Índice do catálogo (publicado pelo backoffice; a loja lê só isto em vez de todos os artigos)
     match /catalog/{id} {
-      allow read: if signedIn();
+      allow read: if active() || isAdmin();
       allow write: if isAdmin();
     }
 
     match /catalogIndex/{id} {
-      allow read: if signedIn();
+      allow read: if active() || isAdmin();
       allow write: if isAdmin();
     }
 
     match /patches/{id} {
-      allow read: if signedIn();
+      allow read: if active() || isAdmin();
       allow write: if isAdmin();
     }
 
     // Perfil do cliente (nome, telefone, morada)
     match /users/{uid} {
-      allow read, write: if signedIn() && request.auth.uid == uid;
-      allow read: if isAdmin();
+      allow read: if (signedIn() && request.auth.uid == uid) || isAdmin();
+      allow write: if active() && request.auth.uid == uid;
     }
 
     match /orders/{id} {
-      allow create: if signedIn()
+      allow create: if active()
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.status == 'pendente'
         && request.resource.data.createdAt == request.time

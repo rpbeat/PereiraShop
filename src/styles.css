@@ -416,6 +416,26 @@ input.upper { text-transform: uppercase; letter-spacing: 0.04em; }
 .det-imgs figcaption { font-size: 0.72rem; color: var(--muted); }
 .det-row a { color: var(--campo); margin-left: 8px; }
 
+/* ---------- admin: contas ---------- */
+.contas { display: grid; gap: 10px; }
+.conta { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 14px 18px; }
+.conta-info { display: grid; gap: 3px; min-width: 0; }
+.conta-nome { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.conta.bloqueada { background: #fbf4f3; border-color: #ecc9c4; }
+.conta-motivo { color: var(--danger); }
+.tag.err { background: #f6dcd8; color: var(--danger); }
+.bloqueada-aviso { max-width: 460px; margin: 64px auto; text-align: center; display: grid; gap: 12px; justify-items: center; }
+
+/* ---------- admin: edição de artigos da encomenda ---------- */
+.oitem.editing { border-color: var(--taca); background: #fffdf6; }
+.item-edit { display: grid; gap: 10px; }
+.item-edit label { display: grid; gap: 4px; font-size: 0.85rem; font-weight: 600; }
+.item-edit label.check { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
+.edit-grid { display: grid; grid-template-columns: 110px minmax(140px, 1fr) 90px 100px; gap: 10px; }
+.edit-grid input, .edit-grid select, .item-edit .obs input { padding: 7px 9px; }
+.patches-edit { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+@media (max-width: 640px) { .edit-grid { grid-template-columns: 1fr 1fr; } }
+
 /* ---------- modal / toasts ---------- */
 .modal { position: fixed; inset: 0; z-index: 50; display: none; place-items: center; background: rgb(10 30 22 / 0.88); padding: 20px; cursor: zoom-out; }
 .modal.open { display: grid; }

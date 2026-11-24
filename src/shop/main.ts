@@ -141,6 +141,10 @@ onAuthStateChanged(auth, async (u) => {
     return;
   }
   app.innerHTML = '<p class="empty">A carregar…</p>';
+  // conta bloqueada no backoffice? (as regras já recusam o catálogo; isto só serve para explicar)
+  const bloqueada = getDoc(doc(db, 'bloqueados', u.uid))
+    .then((s) => s.exists())
+    .catch(() => false);
   try {
     const paraItem = (i: ItemIndice): ItemCat => ({ id: i.id, title: i.t, categoryPath: i.p ?? [], thumb: i.i ?? '', epoca: epocaDe(i.t) });
     const [cat, profSnap] = await Promise.all([
@@ -166,14 +170,28 @@ onAuthStateChanged(auth, async (u) => {
     profile = { ...toCustomer(profSnap.data()), ...(pendingProfile ?? {}) };
     if (!profile.name && u.displayName) profile.name = u.displayName;
   } catch (e) {
+    if (await bloqueada) return renderBloqueada();
     console.error(e);
     app.innerHTML = '<p class="empty">Não foi possível carregar o catálogo. Recarrega a página.</p>';
     return;
   }
+  if (await bloqueada) return renderBloqueada();
   loadCart();
   renderNav();
   route();
 });
+
+function renderBloqueada(): void {
+  user = null; // não deixa a navegação abrir outras páginas
+  nav.innerHTML = '';
+  app.innerHTML = `
+    <section class="card bloqueada-aviso">
+      <h1>Conta bloqueada</h1>
+      <p>Esta conta não pode fazer encomendas de momento. Se achas que é engano, fala connosco.</p>
+      <button class="btn" id="sairBloq">Sair</button>
+    </section>`;
+  app.querySelector('#sairBloq')!.addEventListener('click', () => void signOut(auth));
+}
 
 window.addEventListener('hashchange', () => {
   if (user) route();
