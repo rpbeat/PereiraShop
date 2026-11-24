@@ -67,6 +67,27 @@ code { background: var(--folha-2); padding: 1px 5px; border-radius: 4px; font-si
 .small { font-size: 0.86rem; }
 .empty { color: var(--muted); padding: 56px 0; text-align: center; }
 
+/* ---------- logótipo ---------- */
+.brand { display: inline-flex; align-items: center; gap: 10px; }
+.logo-icon { height: 48px; width: auto; flex: none; overflow: visible; }
+.logo-txt { display: grid; line-height: 0.9; }
+.logo-nome { font-family: var(--display); font-weight: 900; }
+.logo-sub { font-family: var(--display); font-weight: 700; font-size: 0.5em; letter-spacing: 0.02em; opacity: 0.75; }
+.logo-icon .lg-boot { fill: var(--lg-boot, var(--campo)); }
+.logo-icon .lg-heel { fill: var(--lg-heel, var(--relvado-2)); }
+.logo-icon .lg-sole { fill: var(--lg-sole, #5d666e); }
+.logo-icon .lg-lace { stroke: var(--lg-lace, var(--cal)); }
+.logo-icon .lg-chain { stroke: var(--lg-chain, #5d666e); }
+.logo-icon .lg-ball { fill: var(--lg-ball, #4a5259); }
+.logo-icon .lg-pb { fill: var(--lg-pb, var(--taca)); font-family: var(--display); font-weight: 900; font-size: 26px; }
+.logo-icon .lg-shine { stroke: rgb(255 255 255 / 0.28); }
+.logo-icon .lg-weight { stroke: var(--lg-weight, rgb(19 35 28 / 0.45)); }
+/* versão para fundo verde (cabeçalho) */
+.top {
+  --lg-boot: #f2f5f1; --lg-heel: #dce8de; --lg-lace: #1e6b4c; --lg-sole: #c9a54b;
+  --lg-chain: #9aa7a0; --lg-ball: #2b3236; --lg-pb: #c9a54b; --lg-weight: rgb(255 255 255 / 0.35);
+}
+
 /* ---------- topo ---------- */
 .top {
   position: sticky; top: 0; z-index: 10;

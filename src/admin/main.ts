@@ -15,6 +15,7 @@ import {
   updateDoc,
   type Unsubscribe,
 } from 'firebase/firestore';
+import { logoHtml } from '../lib/logo';
 import { auth, db, SHOP_NAME } from '../lib/firebase';
 import { deleteByUrl, uploadImage } from '../lib/storage';
 import { renderImport } from './import';
@@ -40,7 +41,7 @@ type OrderFilter = OrderStatus | 'ativas' | 'todas';
 
 const app = document.getElementById('app') as HTMLElement;
 const nav = document.getElementById('nav') as HTMLElement;
-(document.getElementById('brand') as HTMLElement).textContent = `${SHOP_NAME} · Backoffice`;
+(document.getElementById('brand') as HTMLElement).innerHTML = logoHtml(SHOP_NAME, 'Backoffice');
 document.title = `${SHOP_NAME} · Backoffice`;
 
 let orders: Order[] = [];

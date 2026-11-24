@@ -10,6 +10,7 @@ import {
   type User,
 } from 'firebase/auth';
 import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
+import { logoHtml } from '../lib/logo';
 import { auth, db, SHOP_NAME } from '../lib/firebase';
 import {
   STATUS_LABELS,
@@ -31,7 +32,7 @@ type AuthMode = 'login' | 'register' | 'reset';
 const app = document.getElementById('app') as HTMLElement;
 const nav = document.getElementById('nav') as HTMLElement;
 const modal = document.getElementById('modal') as HTMLElement;
-(document.getElementById('brand') as HTMLElement).textContent = SHOP_NAME;
+(document.getElementById('brand') as HTMLElement).innerHTML = logoHtml(SHOP_NAME);
 document.title = SHOP_NAME;
 
 let user: User | null = null;
