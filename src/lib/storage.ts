@@ -37,3 +37,10 @@ export async function deleteByUrl(url: string): Promise<void> {
     /* ignorar */
   }
 }
+
+/** Cria a miniatura (~480 px) de uma imagem já guardada e devolve o URL. */
+export async function criarMiniatura(urlImagem: string, pid: string): Promise<string> {
+  const r = await fetch(urlImagem, { mode: 'cors' });
+  if (!r.ok) throw new Error(`Falha a obter imagem (${r.status})`);
+  return uploadImage(`products/${pid}/thumb-${Date.now()}.jpg`, await r.blob(), 'image/jpeg', 480);
+}

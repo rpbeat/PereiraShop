@@ -324,6 +324,8 @@ export function renderImport(ctx: ImportContext): void {
           const up = await Promise.all(batch.map((f, j) => uploadImage(`products/${pid}/${Date.now()}-${i + j}.jpg`, f)));
           images.push(...up);
         }
+        // miniatura da imagem principal para a grelha da loja
+        const thumb = await uploadImage(`products/${pid}/thumb-${Date.now()}.jpg`, files[0]!, 'image/jpeg', 480).catch(() => '');
         const path = caminhoDe(d.path);
         const categoryPath = path.length ? path : defCategory ? caminhoDe(defCategory) : [];
         await setDoc(doc(db, 'products', pid), {
@@ -333,6 +335,7 @@ export function renderImport(ctx: ImportContext): void {
           sourceTitle: d.source,
           supplierRef: d.ref,
           images,
+          thumb,
           sizes: usarTamanhosTitulo && d.sizes.length ? d.sizes : sizes,
           ...common,
           createdAt: serverTimestamp(),

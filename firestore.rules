@@ -25,6 +25,17 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Índice do catálogo (publicado pelo backoffice; a loja lê só isto em vez de todos os artigos)
+    match /catalog/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /catalogIndex/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
     match /patches/{id} {
       allow read: if signedIn();
       allow write: if isAdmin();

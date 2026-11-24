@@ -11,6 +11,8 @@ export interface Product {
   sourceTitle: string;
   /** URLs no Firebase Storage. A primeira é a principal (vai na mensagem ao fornecedor). */
   images: string[];
+  /** Miniatura da imagem principal (~480 px) para a grelha do catálogo; vazio se ainda não houver. */
+  thumb: string;
   sizes: string[];
   allowNameNumber: boolean;
   /** Patches que o cliente pode escolher para este artigo. */
@@ -108,6 +110,7 @@ export function toProduct(id: string, d: DocumentData): Product {
     })(),
     sourceTitle: str(d.sourceTitle),
     images: strArr(d.images),
+    thumb: str(d.thumb),
     sizes: strArr(d.sizes),
     allowNameNumber: d.allowNameNumber !== false,
     patchIds: strArr(d.patchIds),

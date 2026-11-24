@@ -18,7 +18,8 @@ import {
 } from 'firebase/firestore';
 import { logoHtml } from '../lib/logo';
 import { auth, db, SHOP_NAME } from '../lib/firebase';
-import { deleteByUrl, uploadImage } from '../lib/storage';
+import { criarMiniatura, deleteByUrl, uploadImage } from '../lib/storage';
+import { publicarIndice } from '../lib/catalogo';
 import { renderImport } from './import';
 import { caminhoDe, caminhoTexto, interpretar } from '../lib/nomes';
 import {
@@ -92,6 +93,8 @@ onAuthStateChanged(auth, async (u) => {
 
   try {
     await Promise.all([loadProducts(), loadPatches()]);
+    dadosProntos = true; // só publica o índice com artigos E patches carregados
+    agendarPublicacao();
   } catch (err) {
     console.error(err);
     toast('Erro a carregar artigos/patches.', 'err');
@@ -123,6 +126,7 @@ async function loadProducts(): Promise<void> {
   products = snap.docs
     .map((d) => toProduct(d.id, d.data()))
     .sort((a, b) => (b.createdAt?.toMillis() ?? 0) - (a.createdAt?.toMillis() ?? 0));
+  agendarPublicacao();
 }
 
 async function loadPatches(): Promise<void> {
@@ -130,6 +134,42 @@ async function loadPatches(): Promise<void> {
   patches = snap.docs
     .map((d) => toPatch(d.id, d.data()))
     .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, 'pt'));
+  agendarPublicacao();
+}
+
+/* ---------- índice do catálogo da loja ---------- */
+// A loja lê o catálogo de um índice (poucas leituras) em vez de ler artigo a artigo.
+// Sempre que artigos ou patches mudam, o índice é republicado (só se o conteúdo mudou).
+
+let publicarTimer = 0;
+let dadosProntos = false;
+let ultimaPublicacao = '';
+let publicando: Promise<void> | null = null;
+
+function agendarPublicacao(): void {
+  if (!dadosProntos) return;
+  clearTimeout(publicarTimer);
+  publicarTimer = window.setTimeout(() => void publicarAgora(false), 1500);
+}
+
+async function publicarAgora(forcar: boolean): Promise<void> {
+  if (!dadosProntos) return;
+  if (publicando) await publicando;
+  publicando = (async () => {
+    try {
+      const escreveu = await publicarIndice(db, products, patches, forcar);
+      ultimaPublicacao = new Date().toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
+      if (escreveu) toast('Catálogo da loja atualizado.');
+    } catch (err) {
+      console.error(err);
+      toast('Não foi possível atualizar o catálogo da loja. Use "Publicar catálogo" em Artigos.', 'err');
+    } finally {
+      publicando = null;
+      const est = document.querySelector('#pubEstado');
+      if (est) est.textContent = ultimaPublicacao ? `Loja sincronizada às ${ultimaPublicacao}` : '';
+    }
+  })();
+  await publicando;
 }
 
 function queueItems(): { o: Order; i: OrderItem; idx: number }[] {
@@ -455,6 +495,14 @@ function renderProducts(): void {
         <button class="btn ghost" id="reint" title="Volta a traduzir títulos e categorias a partir do nome original do fornecedor">Reinterpretar nomes (PT)</button>
         <a class="btn primary" href="#/artigos/novo">Novo artigo</a>
       </div>
+      <div class="pub-bar">
+        <span class="muted small" id="pubEstado">${ultimaPublicacao ? `Loja sincronizada às ${ultimaPublicacao}` : ''}</span>
+        ${(() => {
+          const sem = products.filter((p) => !p.thumb && p.images[0]).length;
+          return sem ? `<button class="btn small" id="thumbs" title="Imagens pequenas para a grelha da loja: menos dados para os clientes">Criar miniaturas (${sem})</button>` : '';
+        })()}
+        <button class="btn small" id="publicar" title="Volta a gerar o índice que a loja usa para mostrar o catálogo">Publicar catálogo</button>
+      </div>
       <div id="pfiltros"></div>
       <div id="plist" class="grid"></div>
     </section>`;
@@ -463,6 +511,13 @@ function renderProducts(): void {
     drawProducts();
   });
   app.querySelector<HTMLButtonElement>('#reint')!.addEventListener('click', (e) => void reinterpretarTodos(e.currentTarget as HTMLButtonElement));
+  app.querySelector<HTMLButtonElement>('#publicar')!.addEventListener('click', async (e) => {
+    const b = e.currentTarget as HTMLButtonElement;
+    b.disabled = true;
+    await publicarAgora(true);
+    b.disabled = false;
+  });
+  app.querySelector<HTMLButtonElement>('#thumbs')?.addEventListener('click', (e) => void criarMiniaturasEmFalta(e.currentTarget as HTMLButtonElement));
 
   // filtros e ações em massa (delegação: o conteúdo é redesenhado)
   const filtros = app.querySelector<HTMLElement>('#pfiltros')!;
@@ -505,6 +560,28 @@ function alvoFiltro(): Product[] {
   });
 }
 
+/** Cria as miniaturas que faltam (artigos importados antes desta funcionalidade). */
+async function criarMiniaturasEmFalta(btn: HTMLButtonElement): Promise<void> {
+  const alvo = products.filter((p) => !p.thumb && p.images[0]);
+  if (!alvo.length) return;
+  btn.disabled = true;
+  let ok = 0;
+  for (const p of alvo) {
+    btn.textContent = `A criar ${ok + 1}/${alvo.length}…`;
+    try {
+      const thumb = await criarMiniatura(p.images[0]!, p.id);
+      await updateDoc(doc(db, 'products', p.id), { thumb });
+      p.thumb = thumb;
+      ok++;
+    } catch (err) {
+      console.error(err);
+    }
+  }
+  toast(ok === alvo.length ? `${ok} miniaturas criadas.` : `${ok} de ${alvo.length} miniaturas criadas (ver consola).`, ok === alvo.length ? 'ok' : 'err');
+  agendarPublicacao();
+  renderProducts();
+}
+
 /** Mostra/oculta vários artigos de uma vez (em lotes de 400 escritas). */
 async function mudarVisibilidade(lista: Product[], ativo: boolean, btn?: HTMLButtonElement): Promise<void> {
   const alvo = lista.filter((p) => p.active !== ativo);
@@ -522,6 +599,7 @@ async function mudarVisibilidade(lista: Product[], ativo: boolean, btn?: HTMLBut
       for (const p of alvo.slice(i, i + 400)) p.active = ativo;
     }
     toast(alvo.length === 1 ? (ativo ? 'Artigo visível na loja.' : 'Artigo oculto.') : `${alvo.length} artigos ${ativo ? 'visíveis na loja' : 'ocultos'}.`);
+    agendarPublicacao();
   } catch (err) {
     console.error(err);
     toast('Não foi possível alterar a visibilidade.', 'err');
@@ -791,10 +869,23 @@ function renderProductForm(id: string): void {
 
     saveBtn.disabled = true;
     try {
+      // miniatura: nova se a imagem principal mudou ou ainda não existia
+      let thumb = existing?.thumb ?? '';
+      if (images[0] && (!thumb || images[0] !== existing?.images[0])) {
+        try {
+          const nova = await criarMiniatura(images[0], pid);
+          if (thumb) void deleteByUrl(thumb);
+          thumb = nova;
+        } catch (err) {
+          console.error(err);
+          thumb = '';
+        }
+      }
       await setDoc(
         doc(db, 'products', pid),
         {
           title: String(fd.get('title') ?? '').trim(),
+          thumb,
           category: caminhoDe(String(fd.get('categoryPath') ?? ''))[0] ?? '',
           categoryPath: caminhoDe(String(fd.get('categoryPath') ?? '')),
           supplierRef: String(fd.get('supplierRef') ?? '').trim(),
@@ -823,7 +914,7 @@ function renderProductForm(id: string): void {
     if (!confirm('Eliminar este artigo? As encomendas já feitas não são afetadas.')) return;
     try {
       await deleteDoc(doc(db, 'products', pid));
-      [...images, ...removed].forEach((u) => void deleteByUrl(u));
+      [...images, ...removed, ...(existing?.thumb ? [existing.thumb] : [])].forEach((u) => void deleteByUrl(u));
       await loadProducts();
       toast('Artigo eliminado.');
       location.hash = '#/artigos';

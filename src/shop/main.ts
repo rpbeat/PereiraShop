@@ -10,6 +10,7 @@ import {
   type User,
 } from 'firebase/auth';
 import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
+import { carregarCatalogo, type ItemIndice } from '../lib/catalogo';
 import { logoHtml } from '../lib/logo';
 import { auth, db, SHOP_NAME } from '../lib/firebase';
 import {
@@ -38,7 +39,11 @@ document.title = SHOP_NAME;
 let user: User | null = null;
 let profile: Customer = emptyCustomer();
 let pendingProfile: Partial<Customer> | null = null;
-let products: Product[] = [];
+/** Lista leve do catálogo (vem do índice): só o necessário para a grelha e a navegação. */
+interface ItemCat { id: string; title: string; categoryPath: string[]; thumb: string }
+let products: ItemCat[] = [];
+/** Artigos completos já lidos (fotos, tamanhos, patches) — cada artigo só é lido uma vez por visita. */
+const detalhes = new Map<string, Product | null>();
 let patches = new Map<string, Patch>();
 let cart: CartItem[] = [];
 let filterPath: string[] = [];
@@ -134,15 +139,27 @@ onAuthStateChanged(auth, async (u) => {
   }
   app.innerHTML = '<p class="empty">A carregar…</p>';
   try {
-    const [pSnap, ptSnap, profSnap] = await Promise.all([
-      getDocs(query(collection(db, 'products'), where('active', '==', true))),
-      getDocs(collection(db, 'patches')),
+    const paraItem = (i: ItemIndice): ItemCat => ({ id: i.id, title: i.t, categoryPath: i.p ?? [], thumb: i.i ?? '' });
+    const [cat, profSnap] = await Promise.all([
+      carregarCatalogo(db, async () => {
+        // ainda sem índice publicado: lê os artigos diretamente (mais leituras)
+        const [pSnap, ptSnap] = await Promise.all([
+          getDocs(query(collection(db, 'products'), where('active', '==', true))),
+          getDocs(collection(db, 'patches')),
+        ]);
+        const lista = pSnap.docs.map((d) => toProduct(d.id, d.data()));
+        lista.forEach((p) => detalhes.set(p.id, p));
+        return {
+          itens: lista.map((p) => ({ id: p.id, t: p.title, p: p.categoryPath, i: p.thumb || p.images[0] || '' })),
+          patches: ptSnap.docs.map((d) => toPatch(d.id, d.data())).filter((x) => x.active),
+        };
+      }),
       getDoc(doc(db, 'users', u.uid)),
     ]);
-    products = pSnap.docs
-      .map((d) => toProduct(d.id, d.data()))
+    products = cat.itens
+      .map(paraItem)
       .sort((a, b) => a.categoryPath.join('\u0000').localeCompare(b.categoryPath.join('\u0000'), 'pt') || a.title.localeCompare(b.title, 'pt'));
-    patches = new Map(ptSnap.docs.map((d) => [d.id, toPatch(d.id, d.data())]));
+    patches = new Map(cat.patches.map((x) => [x.id, toPatch(x.id, { ...x, active: true })]));
     profile = { ...toCustomer(profSnap.data()), ...(pendingProfile ?? {}) };
     if (!profile.name && u.displayName) profile.name = u.displayName;
   } catch (e) {
@@ -177,16 +194,28 @@ function renderNav(): void {
     <a href="#/carrinho" class="cart-link">Carrinho${n ? ` <span class="badge">${n}</span>` : ''}</a>`;
 }
 
+/** Endereço de uma categoria: #/c/Liga Portugal/Benfica/Crianças */
+const catHref = (path: string[]): string => (path.length ? `#/c/${path.map(encodeURIComponent).join('/')}` : '#/');
+
 function route(): void {
-  const [page = '', arg = ''] = location.hash.replace(/^#\/?/, '').split('/');
+  const parts = location.hash.replace(/^#\/?/, '').split('/');
+  const [page = '', arg = ''] = parts;
   window.scrollTo(0, 0);
-  nav.querySelectorAll('a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === `#/${page}`));
+  const sec = page === 'c' || page === 'p' ? '' : page;
+  nav.querySelectorAll('a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === `#/${sec}`));
   switch (page) {
     case '':
+      filterPath = [];
+      renderCatalog();
+      break;
+    case 'c':
+      filterPath = parts.slice(1).filter(Boolean).map((x) => {
+        try { return decodeURIComponent(x); } catch { return x; }
+      }).slice(0, 4);
       renderCatalog();
       break;
     case 'p':
-      renderProduct(decodeURIComponent(arg));
+      void renderProduct(decodeURIComponent(arg));
       break;
     case 'carrinho':
       renderCart();
@@ -293,44 +322,61 @@ function renderAuth(mode: AuthMode): void {
 const startsWith = (path: string[], prefix: string[]): boolean => prefix.every((c, i) => path[i] === c);
 
 function renderCatalog(): void {
-  // uma fila de botões por nível: Liga → Clube → Tipo
+  // se a categoria do endereço já não existe, sobe um nível
+  while (filterPath.length && !products.some((p) => startsWith(p.categoryPath, filterPath))) filterPath = filterPath.slice(0, -1);
+
+  const conta = (prefix: string[]): number => products.filter((p) => startsWith(p.categoryPath, prefix)).length;
+  const opcoes = (prefix: string[]): string[] =>
+    [...new Set(products.filter((p) => startsWith(p.categoryPath, prefix)).map((p) => p.categoryPath[prefix.length]).filter((c): c is string => !!c))]
+      .sort((a, b) => a.localeCompare(b, 'pt'));
+
+  // barra lateral (computador): ligas e, na liga escolhida, os clubes
+  const ligas = opcoes([]);
+  const side = `
+    <nav class="cat-side" aria-label="Categorias">
+      <a class="side-all ${filterPath.length ? '' : 'on'}" href="#/">Todo o catálogo <span>${products.length}</span></a>
+      ${ligas
+        .map((l) => {
+          const aberta = filterPath[0] === l;
+          const clubes = aberta ? opcoes([l]) : [];
+          return `<div class="side-liga ${aberta ? 'open' : ''}">
+            <a class="${aberta && filterPath.length === 1 ? 'on' : ''}" href="${catHref([l])}">${esc(l)} <span>${conta([l])}</span></a>
+            ${clubes.length ? `<div class="side-clubes">${clubes
+              .map((c) => `<a class="${filterPath[1] === c ? 'on' : ''}" href="${catHref([l, c])}">${esc(c)} <span>${conta([l, c])}</span></a>`)
+              .join('')}</div>` : ''}
+          </div>`;
+        })
+        .join('')}
+    </nav>`;
+
+  // botões por nível: no telemóvel mostram todos os níveis; no computador só a partir do tipo
   const rows: string[] = [];
   for (let level = 0; level <= filterPath.length && level < 4; level++) {
     const prefix = filterPath.slice(0, level);
-    const opts = [...new Set(products.filter((p) => startsWith(p.categoryPath, prefix)).map((p) => p.categoryPath[level]).filter((c): c is string => !!c))]
-      .sort((a, b) => a.localeCompare(b, 'pt'));
+    const opts = opcoes(prefix);
     if (!opts.length || (level === 0 && opts.length < 2 && !filterPath.length)) continue;
     const sel = filterPath[level] ?? '';
     rows.push(`<div class="chips level-${level}">${['', ...opts]
-      .map((c) => `<button class="chip ${c === sel ? 'on' : ''}" data-level="${level}" data-cat="${esc(c)}">${c ? esc(c) : level ? 'Todos' : 'Tudo'}</button>`)
+      .map((c) => `<a class="chip ${c === sel ? 'on' : ''}" href="${catHref(c ? [...prefix, c] : prefix)}">${c ? esc(c) : level ? 'Todos' : 'Tudo'}</a>`)
       .join('')}</div>`);
   }
+
   app.innerHTML = `
-    <section>
-      <div class="cat-head">
-        <h1>${esc(filterPath[filterPath.length - 1] ?? 'Catálogo')}</h1>
-        <input id="search" type="search" placeholder="Procurar clube, época, tipo…" aria-label="Procurar" value="${esc(search)}">
+    <section class="catalogo">
+      ${side}
+      <div class="cat-main">
+        <div class="cat-head">
+          <h1>${esc(filterPath[filterPath.length - 1] ?? 'Catálogo')}</h1>
+          <input id="search" type="search" placeholder="${filterPath.length ? `Procurar em ${esc(filterPath[filterPath.length - 1]!)}…` : 'Procurar clube, época, tipo…'}" aria-label="Procurar" value="${esc(search)}">
+        </div>
+        ${filterPath.length ? `<p class="crumbs">${['Catálogo', ...filterPath].map((c, i) => `<a href="${catHref(filterPath.slice(0, i))}">${esc(c)}</a>`).join(' › ')}</p>` : ''}
+        ${rows.join('')}
+        <p class="muted small" id="resultado"></p>
+        <div class="grid" id="grid"></div>
+        <div id="mais"></div>
       </div>
-      ${filterPath.length ? `<p class="crumbs">${['Catálogo', ...filterPath].map((c, i) => `<a href="#" data-crumb="${i}">${esc(c)}</a>`).join(' › ')}</p>` : ''}
-      ${rows.join('')}
-      <div class="grid" id="grid"></div>
     </section>`;
 
-  app.querySelectorAll<HTMLButtonElement>('[data-cat]').forEach((b) =>
-    b.addEventListener('click', () => {
-      const level = Number(b.dataset.level);
-      const c = b.dataset.cat ?? '';
-      filterPath = c ? [...filterPath.slice(0, level), c] : filterPath.slice(0, level);
-      renderCatalog();
-    }),
-  );
-  app.querySelectorAll<HTMLAnchorElement>('[data-crumb]').forEach((a) =>
-    a.addEventListener('click', (e) => {
-      e.preventDefault();
-      filterPath = filterPath.slice(0, Number(a.dataset.crumb));
-      renderCatalog();
-    }),
-  );
   app.querySelector<HTMLInputElement>('#search')!.addEventListener('input', (e) => {
     search = (e.target as HTMLInputElement).value;
     drawGrid();
@@ -338,9 +384,14 @@ function renderCatalog(): void {
   drawGrid();
 }
 
+const POR_PAGINA = 48;
+let mostrar = POR_PAGINA;
+let observador: IntersectionObserver | null = null;
+
 function drawGrid(): void {
   const grid = app.querySelector('#grid');
-  if (!grid) return;
+  const info = app.querySelector('#resultado');
+  if (!grid || !info) return;
   const q = search.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const terms = q.split(/\s+/).filter(Boolean);
   const shown = products.filter((p) => {
@@ -349,24 +400,56 @@ function drawGrid(): void {
     const hay = `${p.title} ${p.categoryPath.join(' ')}`.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     return terms.every((t) => hay.includes(t));
   });
+  const card = (p: ItemCat): string => `
+    <a class="card product" href="#/p/${encodeURIComponent(p.id)}">
+      <div class="img">${p.thumb ? `<img loading="lazy" decoding="async" src="${esc(p.thumb)}" alt="${esc(p.title)}">` : ''}</div>
+      <div class="title">${esc(p.title)}</div>
+      ${p.categoryPath.length ? `<div class="muted small">${esc(p.categoryPath.slice(1).join(' › ') || p.categoryPath[0])}</div>` : ''}
+    </a>`;
+
+  // mostra 48 de cada vez: as imagens seguintes só são pedidas ao chegar ao fim da página
+  mostrar = POR_PAGINA;
+  observador?.disconnect();
   grid.innerHTML = shown.length
-    ? shown
-        .map(
-          (p) => `
-          <a class="card product" href="#/p/${encodeURIComponent(p.id)}">
-            <div class="img">${p.images[0] ? `<img loading="lazy" src="${esc(p.images[0])}" alt="${esc(p.title)}">` : ''}</div>
-            <div class="title">${esc(p.title)}</div>
-            ${p.categoryPath.length ? `<div class="muted small">${esc(p.categoryPath.slice(1).join(' › ') || p.categoryPath[0])}</div>` : ''}
-          </a>`,
-        )
-        .join('')
+    ? shown.slice(0, mostrar).map(card).join('')
     : `<p class="empty">${products.length ? 'Nada por aqui. Experimenta outro clube ou outra época.' : 'O catálogo ainda está no balneário. Volta daqui a pouco.'}</p>`;
+  info.innerHTML = terms.length
+    ? `${shown.length} ${shown.length === 1 ? 'resultado' : 'resultados'}${filterPath.length ? ` em ${esc(filterPath.join(' › '))}. <a href="#/" id="todoCat">Procurar em todo o catálogo</a>` : ''}`
+    : '';
+  info.querySelector('#todoCat')?.addEventListener('click', () => { filterPath = []; });
+
+  const mais = app.querySelector('#mais');
+  if (mais && shown.length > mostrar) {
+    observador = new IntersectionObserver((ent) => {
+      if (!ent[0]?.isIntersecting) return;
+      grid.insertAdjacentHTML('beforeend', shown.slice(mostrar, mostrar + POR_PAGINA).map(card).join(''));
+      mostrar += POR_PAGINA;
+      if (mostrar >= shown.length) observador?.disconnect();
+    }, { rootMargin: '800px' });
+    observador.observe(mais);
+  }
 }
 
 /* ---------- artigo ---------- */
 
-function renderProduct(id: string): void {
-  const p = products.find((x) => x.id === id);
+/** Lê um artigo completo (1 leitura na primeira vez; depois vem da memória). */
+async function lerArtigo(id: string): Promise<Product | null> {
+  if (detalhes.has(id)) return detalhes.get(id) ?? null;
+  const snap = await getDoc(doc(db, 'products', id));
+  const p = snap.exists() ? toProduct(snap.id, snap.data()) : null;
+  detalhes.set(id, p && p.active ? p : null);
+  return detalhes.get(id) ?? null;
+}
+
+async function renderProduct(id: string): Promise<void> {
+  if (!detalhes.has(id)) app.innerHTML = '<p class="empty">A carregar…</p>';
+  let p: Product | null = null;
+  try {
+    p = await lerArtigo(id);
+  } catch (err) {
+    console.error(err);
+  }
+  if (location.hash !== `#/p/${encodeURIComponent(id)}` && location.hash !== `#/p/${id}`) return; // o cliente já mudou de página
   if (!p) {
     app.innerHTML = '<p class="empty">Artigo não encontrado. <a href="#/">Voltar ao catálogo</a></p>';
     return;
@@ -377,7 +460,7 @@ function renderProduct(id: string): void {
     .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, 'pt'));
 
   app.innerHTML = `
-    <a href="#/" class="back">← Catálogo</a>
+    <a href="${catHref(p.categoryPath)}" class="back">← ${esc(p.categoryPath[p.categoryPath.length - 1] ?? 'Catálogo')}</a>
     <section class="product-page">
       <div class="gallery">
         <button class="main-img" id="mainBtn" type="button" aria-label="Ampliar imagem">
@@ -392,7 +475,7 @@ function renderProduct(id: string): void {
         }
       </div>
       <form id="addForm" class="form details">
-        ${p.categoryPath.length ? `<p class="muted small crumbs">${p.categoryPath.map((c, i) => `<a href="#/" data-path="${i}">${esc(c)}</a>`).join(' › ')}</p>` : ''}
+        ${p.categoryPath.length ? `<p class="muted small crumbs">${p.categoryPath.map((c, i) => `<a href="${catHref(p!.categoryPath.slice(0, i + 1))}">${esc(c)}</a>`).join(' › ')}</p>` : ''}
         <h1>${esc(p.title)}</h1>
         <fieldset>
           <legend>Tamanho</legend>
@@ -437,12 +520,6 @@ function renderProduct(id: string): void {
         <button class="btn primary big" type="submit">Adicionar ao carrinho</button>
       </form>
     </section>`;
-
-  app.querySelectorAll<HTMLAnchorElement>('[data-path]').forEach((a) =>
-    a.addEventListener('click', () => {
-      filterPath = p.categoryPath.slice(0, Number(a.dataset.path) + 1);
-    }),
-  );
 
   const mainImg = app.querySelector<HTMLImageElement>('#mainImg');
   app.querySelectorAll<HTMLButtonElement>('[data-img]').forEach((b) =>
