@@ -28,12 +28,13 @@ import {
   type Patch,
   type Product,
 } from '../lib/types';
-import { authError, esc, fmtDate, itemDetails, orderCode, toast } from '../lib/ui';
+import { aCarregar, authError, carregamento, esc, fmtDate, instalarLoaders, itemDetails, loaderHtml, ocupado, orderCode, toast } from '../lib/ui';
 
 type AuthMode = 'login' | 'register' | 'reset';
 
 const app = document.getElementById('app') as HTMLElement;
 const nav = document.getElementById('nav') as HTMLElement;
+instalarLoaders();
 const modal = document.getElementById('modal') as HTMLElement;
 (document.getElementById('brand') as HTMLElement).innerHTML = logoHtml(SHOP_NAME);
 document.title = SHOP_NAME;
@@ -164,7 +165,16 @@ onAuthStateChanged(auth, async (u) => {
     return;
   }
   if (aRegistar || u.uid === uidRegistado) return; // o registo trata do resto
-  app.innerHTML = '<p class="empty">A carregar…</p>';
+  app.innerHTML = loaderHtml('A preparar o balneário…');
+  carregamento(true);
+  try {
+    await arrancar(u);
+  } finally {
+    carregamento(false);
+  }
+});
+
+async function arrancar(u: User): Promise<void> {
   // só contas aprovadas no backoffice entram (as regras do Firestore também o garantem)
   const estado = await estadoConta(u.uid);
   if (user !== u) return;
@@ -206,7 +216,7 @@ onAuthStateChanged(auth, async (u) => {
   loadCart();
   renderNav();
   route();
-});
+}
 
 function renderBloqueada(): void {
   user = null; // não deixa a navegação abrir outras páginas
@@ -563,10 +573,10 @@ async function lerArtigo(id: string): Promise<Product | null> {
 }
 
 async function renderProduct(id: string): Promise<void> {
-  if (!detalhes.has(id)) app.innerHTML = '<p class="empty">A carregar…</p>';
+  if (!detalhes.has(id)) app.innerHTML = loaderHtml('A ir buscar a camisola…');
   let p: Product | null = null;
   try {
-    p = await lerArtigo(id);
+    p = await aCarregar(() => lerArtigo(id));
   } catch (err) {
     console.error(err);
   }
@@ -816,12 +826,13 @@ async function renderOrders(): Promise<void> {
   app.innerHTML = `
     <section class="narrow-page">
       <h1>As minhas encomendas</h1>
-      <div id="list"><p class="empty">A carregar…</p></div>
+      <div id="list">${loaderHtml('A carregar as tuas encomendas…')}</div>
     </section>`;
   const list = app.querySelector('#list')!;
   if (!user) return;
   try {
-    const snap = await getDocs(query(collection(db, 'orders'), where('uid', '==', user.uid)));
+    const uid = user.uid;
+    const snap = await aCarregar(() => getDocs(query(collection(db, 'orders'), where('uid', '==', uid))));
     const orders = snap.docs
       .map((d) => toOrder(d.id, d.data()))
       .sort((a, b) => (b.createdAt?.toMillis() ?? 0) - (a.createdAt?.toMillis() ?? 0));
@@ -886,23 +897,29 @@ function renderAccount(): void {
     if (!user) return;
     const fd = new FormData(form);
     const next = toCustomer(Object.fromEntries([...fd.entries()].map(([k, v]) => [k, String(v).trim()])));
-    try {
-      await setDoc(doc(db, 'users', user.uid), next, { merge: true });
-      profile = next;
-      toast('Dados guardados.');
-    } catch (err) {
-      console.error(err);
-      toast('Não foi possível guardar.', 'err');
-    }
+    const uid = user.uid;
+    await ocupado((e as SubmitEvent).submitter ?? form.querySelector('button[type="submit"], button:not([type])'), async () => {
+      try {
+        await setDoc(doc(db, 'users', uid), next, { merge: true });
+        profile = next;
+        toast('Dados guardados.');
+      } catch (err) {
+        console.error(err);
+        toast('Não foi possível guardar.', 'err');
+      }
+    });
   });
-  app.querySelector('#pw')!.addEventListener('click', async () => {
-    if (!user?.email) return;
-    try {
-      await sendPasswordResetEmail(auth, user.email);
-      toast('Enviámos um link para o teu email.');
-    } catch (err) {
-      toast(authError(err), 'err');
-    }
+  app.querySelector('#pw')!.addEventListener('click', async (e) => {
+    const email = user?.email;
+    if (!email) return;
+    await ocupado(e.currentTarget as HTMLElement, async () => {
+      try {
+        await sendPasswordResetEmail(auth, email);
+        toast('Enviámos um link para o teu email.');
+      } catch (err) {
+        toast(authError(err), 'err');
+      }
+    });
   });
   app.querySelector('#logout')!.addEventListener('click', () => {
     location.hash = '#/';

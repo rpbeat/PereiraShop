@@ -2,7 +2,7 @@ import { sendPasswordResetEmail } from 'firebase/auth';
 import { collection, deleteDoc, doc, getDocs, serverTimestamp, setDoc, type Timestamp } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import type { Order } from '../lib/types';
-import { esc, fmtDate, toast } from '../lib/ui';
+import { esc, fmtDate, loaderHtml, toast } from '../lib/ui';
 import { waLink } from '../lib/whatsapp';
 import { emailContaAprovada, vigiarEnvio } from './emails';
 
@@ -105,7 +105,7 @@ export async function contarPendentes(): Promise<void> {
 export function renderContas(ctx: Ctx, recarregar = false): void {
   const { app } = ctx;
   if (!contas || recarregar) {
-    app.innerHTML = '<p class="empty">A carregar contas…</p>';
+    app.innerHTML = loaderHtml('A carregar contas…');
     aCarregar ??= carregar().finally(() => (aCarregar = null));
     aCarregar
       .then(() => {

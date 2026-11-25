@@ -545,3 +545,40 @@ button.link { background: none; border: 0; padding: 0; color: var(--campo); text
 .aviso-conta b { display: block; margin-bottom: 4px; color: var(--relvado); }
 .aviso-conta p { margin: 0; font-size: 0.92rem; }
 .warn-txt { color: var(--danger); }
+
+/* ---------- loaders ---------- */
+@keyframes roda { to { transform: rotate(360deg); } }
+.spinner {
+  width: 22px; height: 22px; border-radius: 50%; flex: none;
+  border: 3px solid var(--folha); border-top-color: var(--campo);
+  animation: roda 0.8s linear infinite;
+}
+.loader { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 56px 0; color: var(--muted); font-weight: 500; }
+.loader.small { padding: 14px 0; }
+
+/* botão a trabalhar: o texto fica invisível (o botão não muda de tamanho) e aparece um spinner */
+.btn.a-carregar, button.a-carregar { position: relative; color: transparent !important; pointer-events: none; }
+.btn.a-carregar:disabled { opacity: 0.85; }
+.btn.a-carregar > *, button.a-carregar > * { visibility: hidden; }
+.btn.a-carregar::after, button.a-carregar::after {
+  content: ''; position: absolute; inset: 0; margin: auto; width: 1.05em; height: 1.05em; border-radius: 50%;
+  border: 2px solid var(--campo); border-right-color: transparent; animation: roda 0.7s linear infinite;
+}
+.btn.primary.a-carregar::after { border-color: #fff; border-right-color: transparent; }
+.btn.danger.a-carregar::after { border-color: var(--danger); border-right-color: transparent; }
+a.a-carregar { pointer-events: none; opacity: 0.6; cursor: progress; }
+select.a-carregar { opacity: 0.6; cursor: progress; }
+
+/* barra fina no topo enquanto há pedidos em curso */
+.barra-carga { position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 1000; overflow: hidden; pointer-events: none; opacity: 0; transition: opacity 0.2s; }
+.barra-carga.on { opacity: 1; }
+.barra-carga::before {
+  content: ''; position: absolute; top: 0; bottom: 0; width: 40%; background: var(--taca);
+  animation: barra-corre 1.1s ease-in-out infinite;
+}
+@keyframes barra-corre { from { left: -40%; } to { left: 100%; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner, .btn.a-carregar::after, button.a-carregar::after { animation-duration: 2s; }
+  .barra-carga::before { animation: none; left: 0; width: 100%; opacity: 0.7; }
+}

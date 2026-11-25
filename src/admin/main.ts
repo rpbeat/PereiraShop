@@ -41,7 +41,7 @@ import {
   type Patch,
   type Product,
 } from '../lib/types';
-import { authError, esc, fmtDate, orderCode, toast } from '../lib/ui';
+import { aCarregar, authError, esc, fmtDate, instalarLoaders, loaderHtml, ocupado, orderCode, toast } from '../lib/ui';
 import { copyImage, copyImageWithText, copyText, itemMessage, orderSummary, partilhar, podePartilhar, waLink } from '../lib/whatsapp';
 
 type OrderFilter = OrderStatus | 'ativas' | 'todas';
@@ -54,6 +54,7 @@ document.title = `${SHOP_NAME} · Backoffice`;
 let orders: Order[] = [];
 let products: Product[] = [];
 let patches: Patch[] = [];
+let encomendasProntas = false;
 let unsubOrders: Unsubscribe | null = null;
 let view = '';
 let orderFilter: OrderFilter = 'ativas';
@@ -66,6 +67,7 @@ let prodEstado: 'todos' | 'visiveis' | 'ocultos' = 'todos';
 
 const ACTIVE: OrderStatus[] = ['pendente', 'paga', 'encomendada', 'enviada'];
 const PARTILHA = podePartilhar();
+instalarLoaders();
 
 /* ---------- arranque ---------- */
 
@@ -77,7 +79,7 @@ onAuthStateChanged(auth, async (u) => {
     renderLogin();
     return;
   }
-  app.innerHTML = '<p class="empty">A verificar permissões…</p>';
+  app.innerHTML = loaderHtml('A verificar permissões…');
   let isAdmin = false;
   try {
     isAdmin = (await getDoc(doc(db, 'admins', u.uid))).exists();
@@ -97,8 +99,9 @@ onAuthStateChanged(auth, async (u) => {
     return;
   }
 
+  app.innerHTML = loaderHtml('A carregar o backoffice…');
   try {
-    await Promise.all([loadProducts(), loadPatches(), carregarPrecosBase()]);
+    await aCarregar(() => Promise.all([loadProducts(), loadPatches(), carregarPrecosBase()]));
     void contarPendentes(); // contador de contas por aprovar no menu
     dadosProntos = true; // só publica o índice com artigos E patches carregados
     agendarPublicacao();
@@ -111,6 +114,7 @@ onAuthStateChanged(auth, async (u) => {
     query(collection(db, 'orders'), orderBy('createdAt', 'desc'), limit(500)),
     (snap) => {
       orders = snap.docs.map((d) => toOrder(d.id, d.data()));
+      encomendasProntas = true;
       renderNav();
       if (view === 'encomendas') drawOrders();
       if (view === 'fila') renderQueue();
@@ -272,34 +276,42 @@ function renderLogin(): void {
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(form);
-    try {
-      await signInWithEmailAndPassword(auth, String(fd.get('email')).trim(), String(fd.get('password')));
-    } catch (err) {
-      toast(authError(err), 'err');
-    }
+    await ocupado(form.querySelector('button'), async () => {
+      try {
+        await signInWithEmailAndPassword(auth, String(fd.get('email')).trim(), String(fd.get('password')));
+      } catch (err) {
+        toast(authError(err), 'err');
+      }
+    });
   });
   app.querySelector('#reset')!.addEventListener('click', async (e) => {
+    const link = e.currentTarget as HTMLElement;
     e.preventDefault();
     const email = String(new FormData(form).get('email') ?? '').trim();
     if (!email) {
       toast('Escreva primeiro o email.', 'err');
       return;
     }
-    try {
-      await sendPasswordResetEmail(auth, email);
-      toast('Link enviado para o email.');
-    } catch (err) {
-      toast(authError(err), 'err');
-    }
+    await ocupado(link, async () => {
+      try {
+        await sendPasswordResetEmail(auth, email);
+        toast('Link enviado para o email.');
+      } catch (err) {
+        toast(authError(err), 'err');
+      }
+    });
   });
 }
 
 /* ---------- ações globais (delegação) ---------- */
 
-app.addEventListener('click', async (e) => {
+app.addEventListener('click', (e) => {
   const t = (e.target as HTMLElement).closest<HTMLElement>('[data-copy],[data-summary],[data-sent],[data-copy-all],[data-conf]');
-  if (!t) return;
+  if (!t || t.classList.contains('a-carregar')) return;
+  void ocupado(t, () => acaoGlobal(t));
+});
 
+async function acaoGlobal(t: HTMLElement): Promise<void> {
   if (t.dataset.copyAll !== undefined) {
     const text = queueItems()
       .map(({ o, i }) => `#${orderCode(o.id)} — ${i.title}\n${itemMessage(i)}`)
@@ -360,18 +372,20 @@ app.addEventListener('click', async (e) => {
       }
       break;
   }
-});
+}
 
 app.addEventListener('change', async (e) => {
   const sel = (e.target as HTMLElement).closest<HTMLSelectElement>('select[data-status]');
   if (!sel) return;
-  try {
-    await updateDoc(doc(db, 'orders', sel.dataset.status!), { status: sel.value, updatedAt: serverTimestamp() });
-    toast(`Estado alterado para "${STATUS_LABELS[sel.value as OrderStatus]}".`);
-  } catch (err) {
-    console.error(err);
-    toast('Não foi possível alterar o estado.', 'err');
-  }
+  await ocupado(sel, async () => {
+    try {
+      await updateDoc(doc(db, 'orders', sel.dataset.status!), { status: sel.value, updatedAt: serverTimestamp() });
+      toast(`Estado alterado para "${STATUS_LABELS[sel.value as OrderStatus]}".`);
+    } catch (err) {
+      console.error(err);
+      toast('Não foi possível alterar o estado.', 'err');
+    }
+  });
 });
 
 async function safeCopy(fn: () => Promise<void>, ok: string): Promise<void> {
@@ -458,7 +472,11 @@ function drawOrders(): void {
           .toLowerCase()
           .includes(q)),
   );
-  list.innerHTML = shown.length ? shown.map(orderCard).join('') : '<p class="empty">Sem encomendas.</p>';
+  list.innerHTML = !encomendasProntas
+    ? loaderHtml('A carregar encomendas…')
+    : shown.length
+      ? shown.map(orderCard).join('')
+      : '<p class="empty">Sem encomendas.</p>';
 }
 
 function orderCard(o: Order): string {
@@ -662,7 +680,11 @@ function renderQueue(): void {
         estão enviados, a encomenda passa a "Encomendada ao fornecedor".</p>
       <label class="check"><input type="checkbox" id="incPending" ${queueIncludePending ? 'checked' : ''}> Incluir encomendas pendentes de pagamento</label>
       <div class="oitems queue">${
-        items.length ? items.map(({ o, i, idx }) => itemBlock(o, i, idx, true)).join('') : '<p class="empty">Nada por enviar ao fornecedor.</p>'
+        !encomendasProntas
+          ? loaderHtml('A carregar encomendas…')
+          : items.length
+            ? items.map(({ o, i, idx }) => itemBlock(o, i, idx, true)).join('')
+            : '<p class="empty">Nada por enviar ao fornecedor.</p>'
       }</div>
     </section>`;
   app.querySelector<HTMLInputElement>('#incPending')!.addEventListener('change', (e) => {
@@ -1209,9 +1231,9 @@ function renderProductForm(id: string): void {
     }
   });
 
-  app.querySelector('#del')?.addEventListener('click', async () => {
+  app.querySelector('#del')?.addEventListener('click', async (e) => {
     if (!confirm('Eliminar este artigo? As encomendas já feitas não são afetadas.')) return;
-    try {
+    await ocupado(e.currentTarget as HTMLElement, async () => { try {
       await deleteDoc(doc(db, 'products', pid));
       [...images, ...removed, ...(existing?.thumb ? [existing.thumb] : [])].forEach((u) => void deleteByUrl(u));
       await loadProducts();
@@ -1220,7 +1242,7 @@ function renderProductForm(id: string): void {
     } catch (err) {
       console.error(err);
       toast('Não foi possível eliminar.', 'err');
-    }
+    } });
   });
 }
 
@@ -1306,9 +1328,9 @@ function renderPatches(arg: string): void {
     }
   });
 
-  app.querySelector('#ptDel')?.addEventListener('click', async () => {
+  app.querySelector('#ptDel')?.addEventListener('click', async (e) => {
     if (!confirm(`Eliminar o patch "${editing.name}"?`)) return;
-    try {
+    await ocupado(e.currentTarget as HTMLElement, async () => { try {
       await deleteDoc(doc(db, 'patches', editing.id));
       if (editing.imageUrl) void deleteByUrl(editing.imageUrl);
       await loadPatches();
@@ -1317,7 +1339,7 @@ function renderPatches(arg: string): void {
     } catch (err) {
       console.error(err);
       toast('Não foi possível eliminar.', 'err');
-    }
+    } });
   });
 }
 
