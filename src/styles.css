@@ -544,3 +544,4 @@ button.link { background: none; border: 0; padding: 0; color: var(--campo); text
 .aviso-conta { background: var(--folha); border: 1px solid #b9d3c0; border-left: 4px solid var(--campo); border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; }
 .aviso-conta b { display: block; margin-bottom: 4px; color: var(--relvado); }
 .aviso-conta p { margin: 0; font-size: 0.92rem; }
+.warn-txt { color: var(--danger); }

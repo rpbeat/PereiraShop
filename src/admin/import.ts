@@ -166,11 +166,28 @@ async function aplicarCapas(lista: Draft[]): Promise<number> {
   return n;
 }
 
+/** Artigo de criança/bebé? (pela categoria deduzida ou pelo título original) */
+function ehCrianca(d: Pick<Draft, 'catPath' | 'source' | 'title'>): boolean {
+  return (
+    d.catPath.some((c) => /crian|beb[eé]|kids?\b/i.test(c)) ||
+    /\b(kids?|child(ren)?|youth|junior|baby|infant|crian|beb[eé])/i.test(`${d.source} ${d.title}`)
+  );
+}
+
+/** Tamanhos por omissão (quando o título não os indica): adulto S–4XL, criança 16–28. Editáveis no formulário. */
+let tamAdulto = [...SIZES_ADULT];
+let tamCrianca = [...SIZES_KIDS];
+
+/** Tamanhos que o artigo vai ter: os do título (se a opção estiver ligada) ou os por omissão de adulto/criança. */
+function tamanhosDo(d: Draft): { lista: string[]; origem: 'título' | 'adulto' | 'criança' } {
+  if (usarTamanhosTitulo && d.sizes.length) return { lista: d.sizes, origem: 'título' };
+  return ehCrianca(d) ? { lista: tamCrianca, origem: 'criança' } : { lista: tamAdulto, origem: 'adulto' };
+}
+
 export function renderImport(ctx: ImportContext): void {
   const { app } = ctx;
-  const sizeBox = (s: string, on: boolean): string =>
-    `<label class="size"><input type="checkbox" name="sizes" value="${esc(s)}" ${on ? 'checked' : ''}><span>${esc(s)}</span></label>`;
-  const defaultSizes = ['S', 'M', 'L', 'XL', 'XXL'];
+  const sizeBox = (nome: string, s: string, on: boolean): string =>
+    `<label class="size"><input type="checkbox" name="${nome}" value="${esc(s)}" ${on ? 'checked' : ''}><span>${esc(s)}</span></label>`;
 
   app.innerHTML = `
     <section>
@@ -200,11 +217,12 @@ export function renderImport(ctx: ImportContext): void {
           .join('')}</datalist>
         <fieldset>
           <legend>Valores aplicados a todos os artigos importados</legend>
-          <p class="muted small">Tamanhos (usados nos artigos cujo título não indica tamanhos)</p>
+          <p class="muted small">Tamanhos dos artigos cujo título não os indica: cada artigo recebe os de adulto ou os de criança,
+            conforme for de criança (categoria "Crianças"/"Bebé" ou "kids" no nome) ou não.</p>
           <p class="muted small">Adulto</p>
-          <div class="sizes">${SIZES_ADULT.map((s) => sizeBox(s, defaultSizes.includes(s))).join('')}</div>
+          <div class="sizes">${SIZES_ADULT.map((s) => sizeBox('sizesAdulto', s, tamAdulto.includes(s))).join('')}</div>
           <p class="muted small">Criança</p>
-          <div class="sizes">${SIZES_KIDS.map((s) => sizeBox(s, false)).join('')}</div>
+          <div class="sizes">${SIZES_KIDS.map((s) => sizeBox('sizesCrianca', s, tamCrianca.includes(s))).join('')}</div>
           <label class="check"><input type="checkbox" name="allowNameNumber" checked> Permitir nome e número</label>
           ${
             ctx.patches().length
@@ -230,6 +248,15 @@ export function renderImport(ctx: ImportContext): void {
   form.querySelector<HTMLInputElement>('input[name="interpretar"]')!.addEventListener('change', (e) => {
     usarInterpretacao = (e.target as HTMLInputElement).checked;
     drafts.forEach((d) => d.status !== 'feito' && preencher(d));
+    draw();
+  });
+  // tamanhos por omissão de adulto / criança
+  form.addEventListener('change', (e) => {
+    const el = e.target as HTMLInputElement;
+    if (el.name !== 'sizesAdulto' && el.name !== 'sizesCrianca') return;
+    const fd = new FormData(form);
+    tamAdulto = SIZES_ADULT.filter((x) => fd.getAll('sizesAdulto').includes(x));
+    tamCrianca = SIZES_KIDS.filter((x) => fd.getAll('sizesCrianca').includes(x));
     draw();
   });
   form.querySelector<HTMLInputElement>('input[name="tamTitulo"]')!.addEventListener('change', (e) => {
@@ -398,20 +425,22 @@ export function renderImport(ctx: ImportContext): void {
         <div class="draft-imgs">${d.files
           .map((f, i) => `<button type="button" class="dimg ${d.selected[i] ? '' : 'off'} ${i === 0 ? 'principal' : ''}" data-img="${i}" title="${esc(f.name)} (duplo clique: tornar principal)"><img loading="lazy" src="${thumb(f)}" alt=""></button>`)
           .join('')}</div>
-        <p class="muted small">Original: <b>${esc(d.source)}</b>${
-          usarTamanhosTitulo && d.sizes.length ? ` · Tamanhos: <b>${esc(d.sizes[0])}–${esc(d.sizes[d.sizes.length - 1])}</b>` : ''
-        } · clique numa foto para a incluir/excluir; duplo clique para a tornar principal.</p>
+        <p class="muted small">Original: <b>${esc(d.source)}</b> · ${tamTexto(d)} · clique numa foto para a incluir/excluir; duplo clique para a tornar principal.</p>
       </article>`;
+  }
+
+  function tamTexto(d: Draft): string {
+    const { lista, origem } = tamanhosDo(d);
+    const txt = !lista.length ? '<b class="warn-txt">sem tamanhos</b>' : `<b>${esc(lista[0]!)}${lista.length > 1 ? `–${esc(lista[lista.length - 1]!)}` : ''}</b>`;
+    return `<span data-tam>Tamanhos: ${txt} <span class="muted">(${origem === 'título' ? 'do título' : origem})</span></span>`;
   }
 
   async function runImport(): Promise<void> {
     const todo = drafts.filter((d) => d.include && d.status !== 'feito');
     if (!todo.length || importing) return;
     const fd = new FormData(form);
-    const checked = new Set(fd.getAll('sizes').map(String));
-    const sizes = [...SIZES_ADULT, ...SIZES_KIDS].filter((s) => checked.has(s));
-    const precisaComuns = todo.some((d) => !(usarTamanhosTitulo && d.sizes.length));
-    if (precisaComuns && !sizes.length) return toast('Escolha pelo menos um tamanho (há artigos sem tamanhos no título).', 'err');
+    const semTam = todo.filter((d) => !tamanhosDo(d).lista.length);
+    if (semTam.length) return toast(`Há ${semTam.length} artigos sem tamanhos: escolha os tamanhos de ${ehCrianca(semTam[0]!) ? 'criança' : 'adulto'}.`, 'err');
     const defCategory = String(fd.get('defCategory') ?? '').trim();
     const common = {
       allowNameNumber: fd.has('allowNameNumber'),
@@ -473,7 +502,7 @@ export function renderImport(ctx: ImportContext): void {
           supplierRef: d.ref,
           images,
           thumb,
-          sizes: usarTamanhosTitulo && d.sizes.length ? d.sizes : sizes,
+          sizes: [...tamanhosDo(d).lista],
           ...common,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
