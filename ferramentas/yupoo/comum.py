@@ -170,6 +170,36 @@ def normalizar_url(u: str) -> str:
     return u
 
 
+def chave_foto(u: str) -> str:
+    """Identificador de uma foto do Yupoo, igual em todos os tamanhos:
+       https://photo.yupoo.com/<loja>/<hash>/medium.jpg → '<hash>'"""
+    partes = [x for x in urlparse(normalizar_url(u)).path.split("/") if x]
+    return partes[1].lower() if len(partes) >= 3 else ""
+
+
+def indice_capa(imagens: list[str], capa: str) -> int | None:
+    """Posição (0…) da foto de capa do álbum na lista de imagens, ou None se não estiver lá."""
+    chave = chave_foto(capa) if capa else ""
+    if not chave:
+        return None
+    return next((k for k, u in enumerate(imagens) if chave_foto(u) == chave), None)
+
+
+def marcar_principal(prog: dict, capa: str) -> bool:
+    """Grava no progresso do álbum qual é a foto principal (a capa do Yupoo).
+       'principal' = nome do ficheiro (ex.: '007.jpg'). Devolve True se mudou alguma coisa."""
+    k = indice_capa(prog.get("imagens") or [], capa)
+    if k is None:
+        return False
+    num = f"{k + 1:03d}"
+    ficheiro = (prog.get("feitas") or {}).get(num, "")
+    novo = {"capa_url": capa, "principal_num": num, "principal": ficheiro}
+    if all(prog.get(c) == v for c, v in novo.items()):
+        return False
+    prog.update(novo)
+    return True
+
+
 def para_original(u: str) -> str:
     """
     Converte um URL de tamanho reduzido no maior disponível.

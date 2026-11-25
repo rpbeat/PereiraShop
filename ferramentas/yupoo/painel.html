@@ -64,6 +64,18 @@
   .chk { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; white-space: nowrap; font-size: .9rem; }
   .chk input { accent-color: var(--accent); }
   .count { color: var(--muted); font-size: .88rem; }
+  .epocas { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .epocas .lbl { font-size: .82rem; color: var(--muted); margin-right: 2px; }
+  .ep { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 3px 10px; font-size: .8rem; cursor: pointer; white-space: nowrap; }
+  .ep:hover { border-color: #c9c9c4; }
+  .ep b { font-weight: 600; color: var(--muted); margin-left: 4px; font-size: .74rem; }
+  .ep.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .ep.on b { color: rgb(255 255 255 / .8); }
+  .ep.zero { opacity: .55; }
+  .filtros { display: grid; gap: 6px; }
+  .grupo-sep { width: 1px; height: 18px; background: var(--line); margin: 0 4px; }
+  .ep-mais { border: 0; background: none; color: var(--muted); font-size: .8rem; cursor: pointer; text-decoration: underline; }
+  .card .ano { position: absolute; bottom: auto; left: 40px; top: 9px; font-size: .7rem; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: rgb(0 0 0 / .62); color: #fff; }
   .catbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
 
   /* ---------- grelha ---------- */
@@ -166,6 +178,10 @@
         <button class="btn small" id="bLimpar">Limpar seleção</button>
         <button class="btn primary" id="bBaixar" disabled>Descarregar seleção</button>
       </div>
+      <div class="filtros">
+        <div class="epocas" id="tipos" hidden></div>
+        <div class="epocas" id="epocas" hidden></div>
+      </div>
     </div>
     <div class="grid" id="grid"></div>
     <p class="empty" id="vazio" hidden></p>
@@ -222,6 +238,7 @@ let ultimoClique = -1;
 let aCarregar = false;
 let pedidoVista = 0;            // ignora respostas de vistas antigas
 const abertos = new Set();      // categorias expandidas na árvore
+let verTodasEpocas = false;
 
 const ls = {
   get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
@@ -230,6 +247,74 @@ const ls = {
 // seleção: id → {id, titulo, url, categoria, indice} (sobrevive a mudar de categoria e a fechar o browser)
 let sel = new Map(ls.get('yupoo-sel2', []).filter((x) => x && x.id).map((x) => [x.id, x]));
 const guardarSel = () => ls.set('yupoo-sel2', [...sel.values()]);
+// épocas escolhidas (ficam guardadas: valem para todas as categorias)
+let epocasSel = new Set(ls.get('yupoo-epocas', []));
+const guardarEpocas = () => ls.set('yupoo-epocas', [...epocasSel]);
+
+/* ---------- época / ano do equipamento a partir do título ----------
+   "26/27", "2025/26", "25-26", "99/01", "1819" → época;  "2026", "1991" → ano;  nada → "Sem época" */
+const SEM_EPOCA = 'Sem época';
+const LIMITE = (new Date().getFullYear() % 100) + 2; // "41/42" é 1941, não 2041
+const seculo = (a) => (a > LIMITE ? 1900 : 2000) + a;
+const consecutivas = (a, b) => { const d = (b - a + 100) % 100; return d >= 1 && d <= 3; };
+function epocaDe(titulo) {
+  const t = ` ${titulo} `;
+  let m = t.match(/(?<![\d/])((?:19|20)\d{2})\s*[/-]\s*((?:19|20)?\d{2})(?![\d/])/);
+  if (m) { const b = Number(m[2].slice(-2)); if (consecutivas(Number(m[1]) % 100, b)) return `${m[1]}/${String(b).padStart(2, '0')}`; }
+  m = t.match(/(?<![\d/])(\d{2})\s*[/-]\s*(\d{2})(?![\d/])/);
+  if (m && consecutivas(Number(m[1]), Number(m[2]))) return `${seculo(Number(m[1]))}/${m[2]}`;
+  m = t.match(/(?<![\d/#])((?:19[5-9]|20[0-3])\d)(?![\d/])/);
+  if (m) return m[1];
+  m = t.match(/(?<![\d/#])(\d{2})(\d{2})(?![\d/])/);
+  if (m && consecutivas(Number(m[1]), Number(m[2]))) return `${seculo(Number(m[1]))}/${m[2]}`;
+  return SEM_EPOCA;
+}
+/* ---------- tipo de artigo a partir do título ----------
+   Três grupos: peça (o que é), público (para quem) e variante. Entre grupos é "e"; dentro do grupo é "ou". */
+const GRUPOS_TIPO = [
+  ['peca', 'Peça'],
+  ['publico', 'Para'],
+  ['variante', 'Variante'],
+];
+const REGRAS_TIPO = [
+  // peça — a primeira regra que bate ganha
+  ['peca', 'Meias', /\bsocks?\b/],
+  ['peca', 'Fato de treino', /\b(training|track)\s*suit|tracksuit|jacket.*\bpants\b|\bpants\b|\btrousers\b/],
+  ['peca', 'Casaco / corta-vento', /windbreaker|jacket|\bcoat\b|hood(ed|ie)|sweat\s*shirt|sweater|full[- ]zip|anthem/],
+  ['peca', 'Calções', /\bshorts?\b/],
+  ['peca', 'Polo', /\bpolo\b/],
+  ['peca', 'Treino', /training|pre[- ]?match|warm[- ]?up|\bvest\b|tank\s*top|t-shirt|\btee\b/],
+  ['peca', 'Camisola', /./],
+  // público — um só
+  ['publico', 'Bebé', /\bbaby|infant|size:?\s*(3|6|9)\s*-\s*(12|18)\b/],
+  ['publico', 'Crianças', /\bkids?\b|children|\bchild|youth|junior|size:?\s*16\s*-\s*28/],
+  ['publico', 'Mulher', /women|woman|ladies|female/],
+  ['publico', 'Adulto', /./],
+  // variantes — podem ser várias
+  ['variante', 'Versão jogador', /player\s*version|player\s*edition/],
+  ['variante', 'Retro', /\bretro\b|\bvintage\b|\bclassic\b/],
+  ['variante', 'Guarda-redes', /goal\s*keeper|\bgk\b/],
+  ['variante', 'Manga comprida', /long[- ]?sleeve/],
+  ['variante', 'Edição especial', /special\s*edition|anniversary|commemorative|concept|limited/],
+];
+function tiposDe(titulo) {
+  const t = titulo.toLowerCase();
+  const r = [];
+  for (const g of ['peca', 'publico']) {
+    const regra = REGRAS_TIPO.find(([gg, , re]) => gg === g && re.test(t));
+    r.push(regra[1]);
+  }
+  REGRAS_TIPO.forEach(([g, n, re]) => g === 'variante' && re.test(t) && r.push(n));
+  return r;
+}
+
+let tiposSel = new Set(ls.get('yupoo-tipos', []));
+const guardarTipos = () => ls.set('yupoo-tipos', [...tiposSel]);
+const grupoDe = new Map(REGRAS_TIPO.map(([g, n]) => [n, g]));
+
+const anoDe = (e) => (e === SEM_EPOCA ? -1 : Number(e.slice(0, 4)));
+const ordemEpocas = (a, b) => anoDe(b) - anoDe(a) || b.localeCompare(a);
+const epocaCurta = (e) => (e.includes('/') ? `${e.slice(2, 4)}/${e.slice(5)}` : e);
 
 /* ---------- utilitários ---------- */
 function toast(msg, err = false) {
@@ -319,7 +404,7 @@ async function abrirGeral() {
     const d = await api('/api/albuns');
     if (meu !== pedidoVista) return;
     estados = d.estados;
-    lista = d.albuns.map((a) => ({ ...a, categoria: [] }));
+    lista = d.albuns.map((a) => ({ ...a, categoria: [], epoca: epocaDe(a.titulo), tipos: tiposDe(a.titulo) }));
     $('#sub').textContent = lista.length ? `${plural(lista.length, 'álbum', 'álbuns')} · listagem de ${d.atualizado}` : '';
     if (!lista.length) $('#sub').textContent = 'Ainda sem listagem geral.';
   } catch (e) { toast(e.message, true); lista = []; }
@@ -336,7 +421,7 @@ async function abrirCategoria(v, atualizar = false) {
   try {
     const d = await api(`/api/categoria?id=${encodeURIComponent(v.id)}&sub=${v.sub ? 1 : 0}${atualizar ? '&atualizar=1' : ''}`);
     if (meu !== pedidoVista) return;
-    lista = d.albuns.map((a) => ({ ...a, categoria: v.caminho }));
+    lista = d.albuns.map((a) => ({ ...a, categoria: v.caminho, epoca: epocaDe(a.titulo), tipos: tiposDe(a.titulo) }));
     vista.atualizado = d.atualizado;
     await atualizarEstados(false);
   } catch (e) {
@@ -362,7 +447,7 @@ async function incluirFilhos() {
     try {
       const d = await api(`/api/categoria?id=${encodeURIComponent(f.id)}&sub=1`);
       if (meu !== pedidoVista) return;
-      for (const a of d.albuns) porId.set(a.id, { ...a, categoria: [v.caminho[0], f.nome] }); // o clube tem prioridade
+      for (const a of d.albuns) porId.set(a.id, { ...a, categoria: [v.caminho[0], f.nome], epoca: epocaDe(a.titulo), tipos: tiposDe(a.titulo) }); // o clube tem prioridade
     } catch (e) {
       toast(`${f.nome}: ${e.message}`, true);
     }
@@ -397,10 +482,12 @@ function cabecalho() {
     const bf = $('#bFilhos');
     bf.hidden = !nf || vista.incluiFilhos;
     if (!bf.disabled) bf.textContent = `+ Incluir as ${nf} subcategorias (${vista.filhos?.slice(0, 3).map((f) => f.nome).join(', ')}${nf > 3 ? '…' : ''})`;
-    const falta = lista.filter((a) => !estados[a.id]?.concluido).length;
+    const daEpoca = lista.filter(passaFiltros);
+    const falta = daEpoca.filter((a) => !estados[a.id]?.concluido).length;
+    const ep = epocasSel.size || tiposSel.size ? ` · ${[...[...tiposSel], ...[...epocasSel].sort(ordemEpocas).map(epocaCurta)].join(', ')}` : '';
     const bc = $('#bBaixarCat');
-    bc.textContent = !lista.length ? 'Descarregar categoria' : !falta ? '✓ Categoria descarregada'
-      : falta === lista.length ? `Descarregar categoria (${lista.length})` : `Descarregar os ${falta} em falta (de ${lista.length})`;
+    bc.textContent = !daEpoca.length ? `Descarregar categoria${ep}` : !falta ? `✓ Descarregado${ep}`
+      : falta === daEpoca.length ? `Descarregar ${daEpoca.length}${ep || ' (toda a categoria)'}` : `Descarregar os ${falta} em falta${ep} (de ${daEpoca.length})`;
     bc.disabled = aCarregar || !falta || jobAtivo;
     $('#bRecarregar').disabled = aCarregar;
   }
@@ -411,9 +498,12 @@ function filtrar(manterScroll = false) {
   const termos = norm($('#q').value).split(/\s+/).filter(Boolean);
   const semFeitos = $('#fNovos').checked;
   const soSel = $('#fSel').checked;
-  const base = soSel ? [...sel.values()].map((s) => lista.find((a) => a.id === s.id) || { ...s, temCapa: true, fotos: '' }) : lista;
+  const base = soSel ? [...sel.values()].map((s) => lista.find((a) => a.id === s.id) || { ...s, temCapa: true, fotos: '', epoca: epocaDe(s.titulo), tipos: tiposDe(s.titulo) }) : lista;
+  desenharEpocas();
+  desenharTipos();
   visiveis = base.filter((a) => {
     if (semFeitos && estados[a.id]?.concluido) return false;
+    if (!passaEpoca(a) || !passaTipo(a)) return false;
     if (!termos.length) return true;
     const t = norm(`${a.titulo} ${(a.categoria || []).join(' ')} ${a.indice ? '#' + a.indice : ''}`);
     return termos.every((x) => t.includes(x));
@@ -421,6 +511,74 @@ function filtrar(manterScroll = false) {
   if (!manterScroll) { mostrar = POR_PAGINA; ultimoClique = -1; $('#main').scrollTop = 0; }
   desenhar();
 }
+
+const passaEpoca = (a) => !epocasSel.size || epocasSel.has(a.epoca || epocaDe(a.titulo));
+// tipos: dentro do mesmo grupo basta um ("Calções" ou "Polo"); entre grupos têm de bater todos ("Camisola" e "Crianças")
+function passaTipo(a) {
+  if (!tiposSel.size) return true;
+  const t = a.tipos || tiposDe(a.titulo);
+  return GRUPOS_TIPO.every(([g]) => {
+    const escolhidos = [...tiposSel].filter((n) => grupoDe.get(n) === g);
+    return !escolhidos.length || escolhidos.some((n) => t.includes(n));
+  });
+}
+const passaFiltros = (a) => passaEpoca(a) && passaTipo(a);
+
+function desenharTipos() {
+  const box = $('#tipos');
+  const cont = new Map();
+  lista.forEach((a) => (a.tipos || []).forEach((n) => cont.set(n, (cont.get(n) || 0) + 1)));
+  box.hidden = !lista.length && !tiposSel.size;
+  if (box.hidden) return;
+  const chip = (n) => `<button class="ep ${tiposSel.has(n) ? 'on' : ''} ${cont.get(n) ? '' : 'zero'}" data-tipo="${esc(n)}">${esc(n)}<b>${cont.get(n) || 0}</b></button>`;
+  const grupos = GRUPOS_TIPO.map(([g]) => REGRAS_TIPO.filter(([gg, n]) => gg === g && (cont.get(n) || tiposSel.has(n))).map(([, n]) => chip(n)).join(''))
+    .filter(Boolean);
+  box.innerHTML = `<span class="lbl">Tipo:</span>
+    <button class="ep ${tiposSel.size ? '' : 'on'}" data-tipo="">Todos</button>
+    ${grupos.join('<span class="grupo-sep"></span>')}`;
+}
+$('#tipos').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-tipo]');
+  if (!b) return;
+  const n = b.dataset.tipo;
+  if (!n) tiposSel.clear();
+  else if (tiposSel.has(n)) tiposSel.delete(n);
+  else tiposSel.add(n);
+  guardarTipos();
+  filtrar();
+});
+
+/* Botões das épocas presentes na lista atual (com contagem). As escolhidas mantêm-se ao mudar de categoria. */
+const EPOCAS_VISIVEIS = 14;
+function desenharEpocas() {
+  const box = $('#epocas');
+  const cont = new Map();
+  lista.filter(passaTipo).forEach((a) => cont.set(a.epoca, (cont.get(a.epoca) || 0) + 1));
+  epocasSel.forEach((e) => { if (!cont.has(e)) cont.set(e, 0); });
+  const todas = [...cont.keys()].sort(ordemEpocas);
+  box.hidden = !lista.length && !epocasSel.size;
+  if (box.hidden) return;
+  // as mais recentes primeiro; as restantes (retro) ficam atrás de "mais"
+  const curtas = verTodasEpocas ? todas : todas.filter((e, k) => k < EPOCAS_VISIVEIS || epocasSel.has(e));
+  const chip = (e) => `<button class="ep ${epocasSel.has(e) ? 'on' : ''} ${cont.get(e) ? '' : 'zero'}" data-ep="${esc(e)}" title="${esc(e)}">${esc(epocaCurta(e))}<b>${cont.get(e)}</b></button>`;
+  box.innerHTML = `<span class="lbl">Época:</span>
+    <button class="ep ${epocasSel.size ? '' : 'on'}" data-ep="">Todas<b>${lista.filter(passaTipo).length}</b></button>
+    ${curtas.map(chip).join('')}
+    ${todas.length > curtas.length ? `<button class="ep-mais" data-epmais>+ ${todas.length - curtas.length} épocas antigas</button>` : ''}
+    ${verTodasEpocas && todas.length > EPOCAS_VISIVEIS ? '<button class="ep-mais" data-epmais>menos</button>' : ''}`;
+}
+$('#epocas').addEventListener('click', (ev) => {
+  if (ev.target.closest('[data-epmais]')) { verTodasEpocas = !verTodasEpocas; desenharEpocas(); return; }
+  const b = ev.target.closest('[data-ep]');
+  if (!b) return;
+  const e = b.dataset.ep;
+  // cada clique junta ou tira a época da escolha (pode haver várias); "Todas" limpa
+  if (!e) epocasSel.clear();
+  else if (epocasSel.has(e)) epocasSel.delete(e);
+  else epocasSel.add(e);
+  guardarEpocas();
+  filtrar();
+});
 
 function cartao(a, i) {
   const e = estados[a.id];
@@ -432,6 +590,7 @@ function cartao(a, i) {
     <div class="card ${sel.has(a.id) ? 'sel' : ''}" data-i="${i}" data-id="${esc(a.id)}" title="${esc(a.titulo)}">
       <div class="img">${a.temCapa ? `<img loading="lazy" src="/capa?id=${encodeURIComponent(a.id)}" alt="" onerror="this.replaceWith('sem capa')">` : 'sem capa'}</div>
       <span class="tick"></span>${badge}
+      ${a.epoca && a.epoca !== SEM_EPOCA ? `<span class="ano">${esc(epocaCurta(a.epoca))}</span>` : ''}
       ${clube ? `<div class="club">${esc(clube)}</div>` : ''}
       <div class="t">${esc(a.titulo)}</div>
       <div class="m"><span>${a.indice ? `#${a.indice}${fotos ? ' · ' : ''}` : ''}${fotos}</span>
@@ -512,10 +671,12 @@ $('#bBaixar').addEventListener('click', () => {
   descarregar(albuns);
 });
 $('#bBaixarCat').addEventListener('click', () => {
-  const falta = lista.filter((a) => !estados[a.id]?.concluido);
+  const falta = lista.filter((a) => passaFiltros(a) && !estados[a.id]?.concluido);
   if (!falta.length) return;
+  const epTxt = [tiposSel.size ? `tipo ${[...tiposSel].join(', ')}` : '', epocasSel.size ? `épocas ${[...epocasSel].sort(ordemEpocas).join(', ')}` : '']
+    .filter(Boolean).map((x) => ` (${x})`).join('');
   const filhosAviso = vista.filhos?.length && !vista.incluiFilhos ? `\n\nNota: as ${vista.filhos.length} subcategorias (clubes) não estão incluídas. Use "+ Incluir as subcategorias" primeiro, se as quiser.` : '';
-  if (!confirm(`Descarregar ${plural(falta.length, 'álbum', 'álbuns')} de "${vista.caminho.join(' › ')}"?${filhosAviso}`)) return;
+  if (!confirm(`Descarregar ${plural(falta.length, 'álbum', 'álbuns')} de "${vista.caminho.join(' › ')}"${epTxt}?${filhosAviso}`)) return;
   descarregar(falta.map(paraSel));
 });
 $('#bRecarregar').addEventListener('click', () => {

@@ -145,7 +145,8 @@ def job_baixar(sel: list[dict]) -> None:
             TRAB.registar(f"[{k}/{len(sel)}] {a['titulo']}  ({onde})")
             try:
                 ok, erros = e2.processar_album(
-                    sessao, int(indices.get(a["id"]) or 0), {"titulo": a["titulo"], "url": a["url"], "id": a["id"]},
+                    sessao, int(indices.get(a["id"]) or 0),
+                    {"titulo": a["titulo"], "url": a["url"], "id": a["id"], "capa": a.get("capa") or CAPAS.get(a["id"], "")},
                     False, log=TRAB.registar, parar=lambda: TRAB.parar, pasta_destino=destino_album(a))
                 TRAB.imagens += ok
                 TRAB.erros += erros
@@ -274,6 +275,37 @@ def mudar_pasta_catalogo(nova: str) -> Path:
     Path(config.FICHEIRO_DEFINICOES).write_text(json.dumps(defs, ensure_ascii=False, indent=2), encoding="utf-8")
     config.PASTA_CATALOGO = valor or config.PASTA_CATALOGO_PADRAO
     return destino
+
+
+def carregar_todas_capas() -> None:
+    """Junta em CAPAS as capas de todas as listagens guardadas (geral + categorias já abertas)."""
+    ALBUNS.todos()
+    if CACHE_CAT.exists():
+        for f in CACHE_CAT.glob("*.json"):
+            try:
+                for a in json.loads(f.read_text(encoding="utf-8")).get("albuns", []):
+                    if a.get("capa"):
+                        CAPAS.setdefault(a["id"], a["capa"])
+            except (OSError, json.JSONDecodeError):
+                continue
+
+
+def marcar_principais(log=print) -> int:
+    """Álbuns já descarregados sem foto principal marcada: marca a capa do Yupoo. Devolve quantos marcou."""
+    carregar_todas_capas()
+    n = 0
+    for p in Path(config.PASTA_CATALOGO).rglob(config.FICHEIRO_PROGRESSO):
+        try:
+            d = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        capa = CAPAS.get(str(d.get("album_id") or ""), "")
+        if (not d.get("principal") or d.get("capa_url") != capa) and capa and comum.marcar_principal(d, capa):
+            e2.gravar_progresso(p.parent, d)
+            n += 1
+    if n:
+        log(f"Foto principal (capa do Yupoo) marcada em {n} álbuns já descarregados.")
+    return n
 
 
 def estados_download() -> dict:
@@ -515,6 +547,7 @@ def main() -> int:
     print(f"Destino dos downloads: {pasta_catalogo()}")
     if not Path(config.FICHEIRO_ALBUNS).exists():
         print("Ainda não há albuns.csv — use o botão 'Atualizar listagem' no painel.")
+    threading.Thread(target=marcar_principais, daemon=True).start()
     if "--sem-browser" not in sys.argv:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
     try:

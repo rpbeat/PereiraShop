@@ -23,7 +23,7 @@ import { publicarIndice } from '../lib/catalogo';
 import { detetarPrincipal, prepararDetetor } from '../lib/fotoPrincipal';
 import { copiarConfirmacao, partilharConfirmacao } from '../lib/confirmacao';
 import { renderImport } from './import';
-import { renderContas } from './contas';
+import { contarPendentes, quandoMudarPendentes, renderContas } from './contas';
 import { calculadoraHtml, carregarPrecosBase, ligarCalculadora, ligarPrecosBase, precosBaseHtml } from './calculadora';
 import { fmtEur, temPreco } from '../lib/precos';
 import { caminhoDe, caminhoTexto, interpretar } from '../lib/nomes';
@@ -99,6 +99,7 @@ onAuthStateChanged(auth, async (u) => {
 
   try {
     await Promise.all([loadProducts(), loadPatches(), carregarPrecosBase()]);
+    void contarPendentes(); // contador de contas por aprovar no menu
     dadosProntos = true; // só publica o índice com artigos E patches carregados
     agendarPublicacao();
   } catch (err) {
@@ -187,6 +188,13 @@ function queueItems(): { o: Order; i: OrderItem; idx: number }[] {
     .flatMap((o) => o.items.map((i, idx) => ({ o, i, idx })).filter((x) => !x.i.supplierSent));
 }
 
+let contasPendentes = 0;
+quandoMudarPendentes((n) => {
+  if (n === contasPendentes) return;
+  contasPendentes = n;
+  renderNav();
+});
+
 function renderNav(): void {
   const pending = orders.filter((o) => o.status === 'pendente').length;
   const queue = queueItems().length;
@@ -196,7 +204,7 @@ function renderNav(): void {
     <a href="#/artigos">Artigos</a>
     <a href="#/importar">Importar</a>
     <a href="#/patches">Patches</a>
-    <a href="#/contas">Contas</a>
+    <a href="#/contas">Contas${contasPendentes ? ` <span class="badge" title="Contas por aprovar">${contasPendentes}</span>` : ''}</a>
     <a href="#" id="logout">Sair</a>`;
   nav.querySelector('#logout')!.addEventListener('click', (e) => {
     e.preventDefault();

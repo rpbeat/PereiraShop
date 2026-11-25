@@ -38,7 +38,8 @@ def ler_albuns(caminho: str) -> dict[int, dict]:
     albuns: dict[int, dict] = {}
     with open(caminho, encoding="utf-8-sig", newline="") as f:
         for linha in csv.DictReader(f, delimiter=";"):
-            albuns[int(linha["indice"])] = {"titulo": linha["titulo"], "url": linha["url"], "id": linha["id"]}
+            albuns[int(linha["indice"])] = {"titulo": linha["titulo"], "url": linha["url"], "id": linha["id"],
+                                            "capa": linha.get("capa", "")}
     return albuns
 
 
@@ -137,6 +138,8 @@ def processar_album(sessao, indice: int, album: dict, simular: bool,
     prog = ler_progresso(pasta) if pasta.exists() else {}
 
     if prog.get("concluido"):
+        if album.get("capa") and comum.marcar_principal(prog, album["capa"]):
+            gravar_progresso(pasta, prog)
         log(f"  ✓ já concluído em {pasta.name} — a saltar")
         return 0, 0
 
@@ -180,6 +183,9 @@ def processar_album(sessao, indice: int, album: dict, simular: bool,
         comum.pausa(config.PAUSA_IMAGENS)
 
     prog["concluido"] = len(feitas) == len(imagens)
+    # a capa do álbum no Yupoo é a foto principal: fica marcada para a importação no backoffice
+    if album.get("capa") and comum.marcar_principal(prog, album["capa"]):
+        log(f"    ★ foto principal (capa do Yupoo): {prog['principal'] or prog['principal_num']}")
     gravar_progresso(pasta, prog)
     return ok, erros
 

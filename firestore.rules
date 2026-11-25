@@ -18,14 +18,29 @@ service cloud.firestore {
       return exists(/databases/$(database)/documents/bloqueados/$(request.auth.uid));
     }
 
-    // Cliente com sessão iniciada e conta não bloqueada
+    // Contas aprovadas: um documento aprovados/{uid} (criado no backoffice → Contas → Aprovar).
+    function approved() {
+      return exists(/databases/$(database)/documents/aprovados/$(request.auth.uid));
+    }
+
+    // Cliente com sessão iniciada, conta aprovada (ou administrador) e não bloqueada
     function active() {
-      return signedIn() && !blocked();
+      return signedIn() && (approved() || isAdmin()) && !blocked();
     }
 
     // Definições do backoffice (ex.: preços base)
     match /config/{id} {
       allow read, write: if isAdmin();
+    }
+
+    match /aprovados/{uid} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
+      allow write: if isAdmin();
+    }
+
+    // Emails enviados pela extensão "Trigger Email" (só o backoffice cria pedidos de envio)
+    match /mail/{id} {
+      allow read, create: if isAdmin();
     }
 
     match /bloqueados/{uid} {
@@ -64,7 +79,8 @@ service cloud.firestore {
     // Perfil do cliente (nome, telefone, morada)
     match /users/{uid} {
       allow read: if (signedIn() && request.auth.uid == uid) || isAdmin();
-      allow write: if active() && request.auth.uid == uid;
+      // o perfil é criado no registo, ainda antes de a conta ser aprovada
+      allow write: if signedIn() && request.auth.uid == uid && !blocked();
     }
 
     match /orders/{id} {

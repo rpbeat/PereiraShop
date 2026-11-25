@@ -91,6 +91,8 @@ A cópia de imagens funciona no Chrome/Edge em computador e precisa do CORS do S
 | `orders/{id}` | `uid, email, customer{name,phone,address,postalCode,city}, items[], notes, status, createdAt` |
 | `users/{uid}` | perfil do cliente |
 | `admins/{uid}` | contas com acesso ao backoffice |
+| `aprovados/{uid}` | contas aprovadas no backoffice (*Contas*). Só estas entram na loja |
+| `mail/{id}` | pedidos de email para a extensão *Trigger Email* (ex.: conta aprovada) |
 | `bloqueados/{uid}` | contas bloqueadas no backoffice (*Contas*): deixam de ver o catálogo e de encomendar |
 | `config/precos` | preços base da calculadora (`semPers`, `comPers`), editáveis em *Encomendas → Preços base* |
 
@@ -101,6 +103,28 @@ Cada linha de `items` guarda `title, imageUrl, size, name, number, patches[] (no
 - **Catálogo só com sessão iniciada.** Para o tornar público, ver o comentário em `firestore.rules`. Também é preciso tirar o ecrã de login do arranque em `src/shop/main.ts`.
 - **Sem preços** no site.
 - **Importação de artigos/categorias**: por fazer. De momento os artigos criam-se em *Artigos → Novo artigo*, com upload de várias imagens de uma vez. As imagens são redimensionadas para 1600 px antes do envio.
+
+## Aprovação de contas e emails
+
+As contas novas ficam **por aprovar**: o cliente regista-se, recebe o email de confirmação do endereço (Firebase) e vê
+"Conta criada! Agora só falta seres aprovado". Enquanto não for aprovada, não entra na loja (e as regras do Firestore
+recusam o catálogo e as encomendas). No backoffice → **Contas** aparecem primeiro as *Por aprovar*, com contador no menu.
+
+**Contas que já existiam** antes desta mudança também ficam por aprovar: usar *Aprovar todas* uma vez
+(responder *Cancelar* à pergunta do email para as aprovar sem enviar email).
+
+Ao aprovar, o backoffice cria um documento em `mail/` e a extensão **Trigger Email from Firestore** envia-o.
+Instalar uma vez (Firebase Console → *Extensions* → *Trigger Email from Firestore* → *Install*):
+
+- **Collection**: `mail`
+- **SMTP**: a conta que envia. Com Gmail: ativar a verificação em 2 passos na conta Google, criar uma
+  *palavra-passe de aplicação* e usar `smtps://O_TEU_EMAIL%40gmail.com@smtp.gmail.com:465` (o `@` do email escreve-se `%40`) como URI e a palavra-passe
+  de aplicação no campo da palavra-passe SMTP. Outros fornecedores (Brevo, SendGrid, Mailgun…) dão um URI SMTP equivalente.
+- **Default FROM**: `Pé de Chumbo <O_TEU_EMAIL@gmail.com>`
+- Região: a mesma da base de dados.
+
+Depois de aprovar uma conta, o backoffice acompanha o envio e avisa "Email enviado" ou o erro. Se a extensão
+não estiver instalada, avisa ao fim de ~45 s e o pedido fica guardado em `mail/` (é enviado quando a extensão for instalada).
 
 ## Publicação automática (GitHub Actions)
 

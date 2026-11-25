@@ -41,6 +41,28 @@ document.title = SHOP_NAME;
 let user: User | null = null;
 let profile: Customer = emptyCustomer();
 let pendingProfile: Partial<Customer> | null = null;
+/** Durante o registo: o arranque espera que o perfil fique gravado. */
+let aRegistar = false;
+/** Conta acabada de criar (fica por aprovar): o arranque ignora-a. */
+let uidRegistado = '';
+/** Mensagem a mostrar no ecrã de entrada (ex.: conta à espera de aprovação). */
+let avisoEntrada: { titulo: string; texto: string } | null = null;
+
+const AVISO_PENDENTE = {
+  titulo: 'Conta à espera de aprovação',
+  texto: 'A tua conta ainda não foi aprovada. Assim que estiver, recebes um email e já podes entrar. Não demora: o mister está só a rever a convocatória.',
+};
+
+/** A conta pode entrar? (aprovada, ou administrador) e não bloqueada. */
+async function estadoConta(uid: string): Promise<'ok' | 'pendente' | 'bloqueada'> {
+  const existe = (col: string): Promise<boolean> =>
+    getDoc(doc(db, col, uid))
+      .then((s) => s.exists())
+      .catch(() => false);
+  const [aprovada, admin, bloqueada] = await Promise.all([existe('aprovados'), existe('admins'), existe('bloqueados')]);
+  if (bloqueada) return 'bloqueada';
+  return aprovada || admin ? 'ok' : 'pendente';
+}
 /** Lista leve do catálogo (vem do índice): só o necessário para a grelha e a navegação. */
 interface ItemCat { id: string; title: string; categoryPath: string[]; thumb: string; epoca: string }
 let products: ItemCat[] = [];
@@ -141,11 +163,17 @@ onAuthStateChanged(auth, async (u) => {
     renderAuth('login');
     return;
   }
+  if (aRegistar || u.uid === uidRegistado) return; // o registo trata do resto
   app.innerHTML = '<p class="empty">A carregar…</p>';
-  // conta bloqueada no backoffice? (as regras já recusam o catálogo; isto só serve para explicar)
-  const bloqueada = getDoc(doc(db, 'bloqueados', u.uid))
-    .then((s) => s.exists())
-    .catch(() => false);
+  // só contas aprovadas no backoffice entram (as regras do Firestore também o garantem)
+  const estado = await estadoConta(u.uid);
+  if (user !== u) return;
+  if (estado === 'bloqueada') return renderBloqueada();
+  if (estado === 'pendente') {
+    avisoEntrada ??= AVISO_PENDENTE;
+    await signOut(auth);
+    return;
+  }
   try {
     const paraItem = (i: ItemIndice): ItemCat => ({ id: i.id, title: i.t, categoryPath: i.p ?? [], thumb: i.i ?? '', epoca: epocaDe(i.t) });
     const [cat, profSnap] = await Promise.all([
@@ -171,12 +199,10 @@ onAuthStateChanged(auth, async (u) => {
     profile = { ...toCustomer(profSnap.data()), ...(pendingProfile ?? {}) };
     if (!profile.name && u.displayName) profile.name = u.displayName;
   } catch (e) {
-    if (await bloqueada) return renderBloqueada();
     console.error(e);
     app.innerHTML = '<p class="empty">Não foi possível carregar o catálogo. Recarrega a página.</p>';
     return;
   }
-  if (await bloqueada) return renderBloqueada();
   loadCart();
   renderNav();
   route();
@@ -270,6 +296,7 @@ function renderAuth(mode: AuthMode): void {
     </section>
     <div class="auth-side">
     <section class="auth">
+      ${avisoEntrada ? `<div class="aviso-conta" role="status"><b>${esc(avisoEntrada.titulo)}</b><p>${esc(avisoEntrada.texto)}</p></div>` : ''}
       <h2>${title}</h2>
       ${mode === 'login' ? '<p class="muted">Entra com a tua conta para ver o catálogo e fazer encomendas.</p>' : ''}
       ${mode === 'reset' ? '<p class="muted">Indica o email da conta. Vais receber um link para escolher uma nova palavra-passe.</p>' : ''}
@@ -300,6 +327,7 @@ function renderAuth(mode: AuthMode): void {
   app.querySelectorAll<HTMLAnchorElement>('[data-mode]').forEach((a) =>
     a.addEventListener('click', (e) => {
       e.preventDefault();
+      avisoEntrada = null;
       renderAuth(a.dataset.mode as AuthMode);
     }),
   );
@@ -312,6 +340,9 @@ function renderAuth(mode: AuthMode): void {
     const password = String(fd.get('password') ?? '');
     const btn = form.querySelector('button')!;
     btn.disabled = true;
+    avisoEntrada = null;
+    uidRegistado = '';
+    app.querySelector('.aviso-conta')?.remove();
     try {
       if (mode === 'login') {
         await signInWithEmailAndPassword(auth, email, password);
@@ -323,16 +354,31 @@ function renderAuth(mode: AuthMode): void {
         const name = String(fd.get('name') ?? '').trim();
         const phone = String(fd.get('phone') ?? '').trim();
         pendingProfile = { name, phone };
-        const cred = await createUserWithEmailAndPassword(auth, email, password);
-        await updateProfile(cred.user, { displayName: name });
-        await setDoc(doc(db, 'users', cred.user.uid), {
-          ...emptyCustomer(),
-          name,
-          phone,
-          email,
-          createdAt: serverTimestamp(),
-        });
-        sendEmailVerification(cred.user).catch(() => undefined);
+        aRegistar = true;
+        try {
+          const cred = await createUserWithEmailAndPassword(auth, email, password);
+          uidRegistado = cred.user.uid;
+          await updateProfile(cred.user, { displayName: name });
+          await setDoc(doc(db, 'users', cred.user.uid), {
+            ...emptyCustomer(),
+            name,
+            phone,
+            email,
+            createdAt: serverTimestamp(),
+          });
+          await sendEmailVerification(cred.user).catch(() => undefined);
+          // a conta nova fica à espera de aprovação no backoffice
+          avisoEntrada = {
+            titulo: 'Conta criada!',
+            texto: 'Agora só falta seres aprovado. Quando a conta estiver aprovada recebes um email e já podes entrar. Entretanto, confirma o teu email pelo link que te enviámos.',
+          };
+          aRegistar = false;
+          await signOut(auth);
+        } catch (err) {
+          aRegistar = false;
+          if (auth.currentUser) await signOut(auth).catch(() => undefined);
+          throw err;
+        }
       }
     } catch (err) {
       toast(authError(err), 'err');

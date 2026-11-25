@@ -535,3 +535,12 @@ button.link { background: none; border: 0; padding: 0; color: var(--campo); text
 /* ---------- loja: preço nas encomendas ---------- */
 .order-total-line { margin: 4px 0 8px; }
 .line-price { white-space: nowrap; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* ---------- admin: contas por aprovar ---------- */
+.conta.por-aprovar { border-color: var(--taca); background: #fffbf0; }
+.contas-pend { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; padding: 12px 16px; margin: 6px 0 4px; border-color: var(--taca); background: #fffbf0; }
+
+/* ---------- loja: aviso no ecrã de entrada ---------- */
+.aviso-conta { background: var(--folha); border: 1px solid #b9d3c0; border-left: 4px solid var(--campo); border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; }
+.aviso-conta b { display: block; margin-bottom: 4px; color: var(--relvado); }
+.aviso-conta p { margin: 0; font-size: 0.92rem; }

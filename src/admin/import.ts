@@ -32,7 +32,9 @@ interface Draft {
   include: boolean;
   exists: boolean;
   status: '' | 'a detetar' | 'a enviar' | 'feito' | 'erro';
-  frente: '' | 'a analisar' | 'detetada' | 'rever' | 'manual'; // deteção da foto principal
+  frente: '' | 'a analisar' | 'detetada' | 'rever' | 'manual' | 'capa'; // deteção da foto principal
+  /** .progresso.json do painel Yupoo (diz qual é a foto de capa do álbum). */
+  progresso?: File;
 }
 
 export interface ImportContext {
@@ -43,6 +45,7 @@ export interface ImportContext {
 }
 
 const IMG_EXT = /\.(jpe?g|png|webp|gif|bmp)$/i;
+const PROGRESSO = '.progresso.json';
 
 let drafts: Draft[] = [];
 let urls = new Map<File, string>();
@@ -88,7 +91,13 @@ function thumb(f: File): string {
 
 function buildDrafts(files: File[], existing: Product[]): Draft[] {
   const groups = new Map<string, { title: string; catPath: string[]; files: File[] }>();
+  const progressos = new Map<string, File>();
   for (const f of files) {
+    if (f.name === PROGRESSO) {
+      const dirs = (f.webkitRelativePath || f.name).split('/').slice(0, -1);
+      progressos.set(dirs.slice(1).join('/') || dirs[dirs.length - 1] || '', f);
+      continue;
+    }
     if (!IMG_EXT.test(f.name) && !f.type.startsWith('image/')) continue;
     const parts = (f.webkitRelativePath || f.name).split('/');
     const dirs = parts.slice(0, -1); // [raiz, (categoria, subcategoria…), artigo]
@@ -119,8 +128,42 @@ function buildDrafts(files: File[], existing: Product[]): Draft[] {
         exists,
         status: '',
         frente: '',
+        progresso: progressos.get(ref),
       };
     });
+}
+
+function tornarPrincipal(d: Draft, i: number): void {
+  const [f] = d.files.splice(i, 1);
+  d.selected.splice(i, 1);
+  d.files.unshift(f!);
+  d.selected.unshift(true);
+}
+
+/**
+ * Álbuns descarregados pelo painel Yupoo: o .progresso.json diz qual é a capa do álbum
+ * (campo "principal", ex.: "007.jpg"). Essa foto passa a principal e o detetor não é preciso.
+ */
+async function aplicarCapas(lista: Draft[]): Promise<number> {
+  let n = 0;
+  await Promise.all(
+    lista.map(async (d) => {
+      if (!d.progresso || d.frente) return;
+      try {
+        const j = JSON.parse(await d.progresso.text()) as { principal?: string; principal_num?: string; feitas?: Record<string, string> };
+        const nome = j.principal || (j.principal_num ? j.feitas?.[j.principal_num] : '') || '';
+        const i = nome ? d.files.findIndex((f) => f.name.toLowerCase() === nome.toLowerCase()) : -1;
+        if (i < 0) return;
+        if (i > 0) tornarPrincipal(d, i);
+        d.selected[0] = true;
+        d.frente = 'capa';
+        n++;
+      } catch {
+        /* progresso ilegível: segue para o detetor */
+      }
+    }),
+  );
+  return n;
 }
 
 export function renderImport(ctx: ImportContext): void {
@@ -149,7 +192,7 @@ export function renderImport(ctx: ImportContext): void {
         <div class="row">
           <label class="check"><input type="checkbox" name="interpretar" ${usarInterpretacao ? 'checked' : ''}> Traduzir nomes e deduzir categorias</label>
           <label class="check"><input type="checkbox" name="tamTitulo" ${usarTamanhosTitulo ? 'checked' : ''}> Usar os tamanhos indicados no título (ex.: S-4XL, 16-28)</label>
-          <label class="check"><input type="checkbox" name="frente" ${detetarFrente ? 'checked' : ''}> Detetar a foto principal (frente da camisola)</label>
+          <label class="check"><input type="checkbox" name="frente" ${detetarFrente ? 'checked' : ''}> Detetar a foto principal (frente da camisola) nos artigos sem capa do Yupoo marcada</label>
         </div>
         <datalist id="impCats">${[...new Set(ctx.products().flatMap((p) => p.categoryPath.map((_, i) => caminhoTexto(p.categoryPath.slice(0, i + 1)))))]
           .sort((a, b) => a.localeCompare(b, 'pt'))
@@ -200,14 +243,20 @@ export function renderImport(ctx: ImportContext): void {
     draw();
   });
 
-  form.querySelector<HTMLInputElement>('#dir')!.addEventListener('change', (e) => {
+  form.querySelector<HTMLInputElement>('#dir')!.addEventListener('change', async (e) => {
     const input = e.target as HTMLInputElement;
     urls.forEach((u) => URL.revokeObjectURL(u));
     urls = new Map();
-    drafts = buildDrafts([...(input.files ?? [])], ctx.products());
+    detecaoId++;
+    const novos = buildDrafts([...(input.files ?? [])], ctx.products());
+    drafts = novos;
     input.value = '';
     if (!drafts.length) toast('Não encontrei imagens nessa pasta.', 'err');
+    // capa do Yupoo marcada pelo painel → foto principal (antes de mostrar, para não "saltar")
+    const nCapas = await aplicarCapas(novos);
+    if (drafts !== novos) return; // entretanto escolheu outra pasta
     draw();
+    if (nCapas) toast(`Foto principal: capa do Yupoo em ${nCapas} de ${novos.length} artigos.`);
     if (detetarFrente) void detetarTodas();
   });
 
@@ -252,13 +301,6 @@ export function renderImport(ctx: ImportContext): void {
     } finally {
       drawSummary();
     }
-  }
-
-  function tornarPrincipal(d: Draft, i: number): void {
-    const [f] = d.files.splice(i, 1);
-    d.selected.splice(i, 1);
-    d.files.unshift(f!);
-    d.selected.unshift(true);
   }
 
   function redesenharCartao(d: Draft): void {
@@ -350,7 +392,7 @@ export function renderImport(ctx: ImportContext): void {
           <input name="path" value="${esc(d.path)}" list="impCats" placeholder="Liga › Clube › Tipo" aria-label="Categoria" ${importing ? 'disabled' : ''}>
           <span class="muted small img-count">${sel}/${d.files.length} imagens</span>
           ${d.exists ? '<span class="tag">Já existe</span>' : ''}
-          ${{ '': '', 'a analisar': '<span class="tag">A detetar a frente…</span>', detetada: '<span class="tag ok">Frente detetada</span>', rever: '<span class="tag warn">Confirmar a frente</span>', manual: '<span class="tag ok">Frente escolhida</span>' }[d.frente]}
+          ${{ '': '', 'a analisar': '<span class="tag">A detetar a frente…</span>', detetada: '<span class="tag ok">Frente detetada</span>', rever: '<span class="tag warn">Confirmar a frente</span>', manual: '<span class="tag ok">Frente escolhida</span>', capa: '<span class="tag ok" title="Marcada pelo painel de download">Capa do Yupoo</span>' }[d.frente]}
           ${d.status ? `<span class="tag ${d.status === 'feito' ? 'ok' : ''}">${d.status}</span>` : ''}
         </div>
         <div class="draft-imgs">${d.files

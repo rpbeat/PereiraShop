@@ -11,6 +11,9 @@
 - Mostra as capas dos álbuns, com filtro por várias palavras (`26/27 home`).
 - Também filtra para *ocultar já descarregados* e *só selecionados*.
 - Clique numa capa para a selecionar. **Shift+clique** seleciona um intervalo, e *Selecionar visíveis* seleciona tudo o que o filtro mostra. A seleção fica guardada no browser.
+- **Época:** os botões por baixo dos filtros mostram as épocas/anos dos equipamentos (lidos do título: 26/27, 2026, 99/01…). Clique para escolher uma ou várias; a escolha fica guardada e vale para todas as categorias. *Descarregar categoria* passa a descarregar só as épocas escolhidas.
+- **Tipo:** filtra por peça (Camisola, Calções, Fato de treino, Casaco / corta-vento, Treino, Polo, Meias), público (Adulto, Mulher, Crianças, Bebé) e variante (Versão jogador, Retro, Guarda-redes, Manga comprida, Edição especial). Dentro do mesmo grupo basta um; entre grupos têm de bater todos (ex.: *Camisola* + *Crianças*). *Descarregar categoria* respeita também o tipo.
+- **Foto principal:** a capa que aparece no painel é a foto principal do artigo. Ao descarregar fica marcada no `.progresso.json` do álbum (`"principal": "007.jpg"`), e o backoffice → Importar usa-a como 1.ª foto (etiqueta *Capa do Yupoo*), sem precisar do detetor. Os álbuns descarregados antes são marcados sozinhos quando se abre o painel.
 - **Descarregar (n)** descarrega os selecionados, com barra de progresso, registo e botão **Parar**. Os álbuns ficam com a etiqueta *Descarregado* ou *Parcial x/y*. Os parciais retomam onde ficaram.
 - **Atualizar listagem** volta a ler o Yupoo (≈1 min) e regrava o `albuns.csv`.
 - **Abrir pasta catálogo** e **Backoffice → Importar** são os passos seguintes.
