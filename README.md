@@ -126,6 +126,17 @@ Instalar uma vez (Firebase Console → *Extensions* → *Trigger Email from Fire
 Depois de aprovar uma conta, o backoffice acompanha o envio e avisa "Email enviado" ou o erro. Se a extensão
 não estiver instalada, avisa ao fim de ~45 s e o pedido fica guardado em `mail/` (é enviado quando a extensão for instalada).
 
+
+**Emails das encomendas** (pela mesma extensão):
+
+| Quando | Email ao cliente |
+|---|---|
+| O cliente regista a encomenda | "Recebemos a tua encomenda" (em processamento) |
+| No backoffice muda o estado para Em análise, Paga, Encomendada, Enviada, Entregue ou Cancelada | Um email próprio de cada estado, com os artigos e o total (se já tiver preço) |
+| Todos os artigos marcados como enviados ao fornecedor (passa sozinha a Encomendada) | "Já foi pedida ao fornecedor" |
+
+Os textos estão em `src/lib/emailTemplates.ts`. O cliente só pode pedir o email "encomenda recebida" de uma encomenda sua,
+para o próprio email e uma única vez (regras em `firestore.rules`, coleção `mail`).
 ## Publicação automática (GitHub Actions)
 
 Cada `git push` para `main` corre `.github/workflows/deploy.yml`: instala, compila e publica

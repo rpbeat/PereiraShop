@@ -24,6 +24,7 @@ import { detetarPrincipal, prepararDetetor } from '../lib/fotoPrincipal';
 import { copiarConfirmacao, partilharConfirmacao } from '../lib/confirmacao';
 import { renderImport } from './import';
 import { contarPendentes, quandoMudarPendentes, renderContas } from './contas';
+import { avisarClienteEstado } from './emails';
 import { calculadoraHtml, carregarPrecosBase, ligarCalculadora, ligarPrecosBase, precosBaseHtml } from './calculadora';
 import { fmtEur, temPreco } from '../lib/precos';
 import { caminhoDe, caminhoTexto, interpretar } from '../lib/nomes';
@@ -377,10 +378,13 @@ async function acaoGlobal(t: HTMLElement): Promise<void> {
 app.addEventListener('change', async (e) => {
   const sel = (e.target as HTMLElement).closest<HTMLSelectElement>('select[data-status]');
   if (!sel) return;
+  const o = orders.find((x) => x.id === sel.dataset.status);
+  const novo = sel.value as OrderStatus;
   await ocupado(sel, async () => {
     try {
-      await updateDoc(doc(db, 'orders', sel.dataset.status!), { status: sel.value, updatedAt: serverTimestamp() });
-      toast(`Estado alterado para "${STATUS_LABELS[sel.value as OrderStatus]}".`);
+      await updateDoc(doc(db, 'orders', sel.dataset.status!), { status: novo, updatedAt: serverTimestamp() });
+      toast(`Estado alterado para "${STATUS_LABELS[novo]}". A avisar o cliente por email…`);
+      if (o) await avisarClienteEstado({ ...o, status: novo });
     } catch (err) {
       console.error(err);
       toast('Não foi possível alterar o estado.', 'err');
@@ -405,7 +409,8 @@ async function toggleSent(o: Order, idx: number): Promise<void> {
   if (allSent && (o.status === 'pendente' || o.status === 'paga')) patch.status = 'encomendada';
   try {
     await updateDoc(doc(db, 'orders', o.id), patch);
-    toast(allSent && patch.status ? `Encomenda #${orderCode(o.id)} passou a "Encomendada ao fornecedor".` : 'Atualizado.');
+    toast(allSent && patch.status ? `Encomenda #${orderCode(o.id)} passou a "Encomendada ao fornecedor". A avisar o cliente por email…` : 'Atualizado.');
+    if (patch.status) await avisarClienteEstado({ ...o, items, status: patch.status as OrderStatus });
   } catch (err) {
     console.error(err);
     toast('Não foi possível atualizar.', 'err');

@@ -38,9 +38,21 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // Emails enviados pela extensão "Trigger Email" (só o backoffice cria pedidos de envio)
+    // Emails enviados pela extensão "Trigger Email".
+    // O backoffice cria qualquer pedido; o cliente só pode pedir o email "encomenda recebida"
+    // de uma encomenda sua, para o próprio email, uma vez (o id é encomenda-<id da encomenda>).
     match /mail/{id} {
-      allow read, create: if isAdmin();
+      allow read: if isAdmin();
+      allow create: if isAdmin() || (
+        active()
+        && id.matches('encomenda-[A-Za-z0-9]+')
+        && request.resource.data.keys().hasOnly(['to', 'message', 'tipo', 'encomenda', 'criadoEm'])
+        && request.resource.data.to == request.auth.token.email
+        && request.resource.data.tipo == 'encomenda-recebida'
+        && request.resource.data.encomenda == id.split('-')[1]
+        && request.resource.data.message.keys().hasOnly(['subject', 'text', 'html'])
+        && get(/databases/$(database)/documents/orders/$(id.split('-')[1])).data.uid == request.auth.uid
+      );
     }
 
     match /bloqueados/{uid} {

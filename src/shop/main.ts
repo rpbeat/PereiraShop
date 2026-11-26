@@ -13,6 +13,7 @@ import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, setDo
 import { carregarCatalogo, type ItemIndice } from '../lib/catalogo';
 import { epocaDe, ordemEpocas } from '../lib/nomes';
 import { fmtEur } from '../lib/precos';
+import { emailEncomendaMsg } from '../lib/emailTemplates';
 import { logoHtml } from '../lib/logo';
 import { auth, db, SHOP_NAME } from '../lib/firebase';
 import {
@@ -24,6 +25,7 @@ import {
   toProduct,
   type CartItem,
   type Customer,
+  type Order,
   type OrderItem,
   type Patch,
   type Product,
@@ -797,15 +799,27 @@ function renderCart(): void {
     const btn = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
     btn.disabled = true;
     try {
+      const email = user.email ?? '';
       const ref = await addDoc(collection(db, 'orders'), {
         uid: user.uid,
-        email: user.email ?? '',
+        email,
         customer,
         items,
         notes: val('notes'),
         status: 'pendente',
         createdAt: serverTimestamp(),
       });
+      // email "encomenda em processamento" (um por encomenda; as regras só deixam enviar para o próprio)
+      if (email) {
+        const enc: Order = { id: ref.id, uid: user.uid, email, customer, items, notes: val('notes'), status: 'pendente', createdAt: null, extra: 0, total: null };
+        await setDoc(doc(db, 'mail', `encomenda-${ref.id}`), {
+          to: email,
+          message: emailEncomendaMsg(enc, 'recebida'),
+          tipo: 'encomenda-recebida',
+          encomenda: ref.id,
+          criadoEm: serverTimestamp(),
+        }).catch((err) => console.warn('email da encomenda não pedido', err));
+      }
       await setDoc(doc(db, 'users', user.uid), customer, { merge: true }).catch(() => undefined);
       profile = customer;
       cart = [];
